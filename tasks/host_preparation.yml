@@ -211,3 +211,10 @@
     name: "{{ kubernetes_kubelet_service_name }}"
     enabled: true
     state: started
+
+- name: "Ensuring Helm client is installed for Kubernetes applications"
+  ansible.builtin.include_tasks: helm.yml
+  when:
+    - kubernetes_helm_install | bool
+    - kubernetes_applications | selectattr("type", "defined")
+      | selectattr("type", "equalto", "helm") | list | length > 0

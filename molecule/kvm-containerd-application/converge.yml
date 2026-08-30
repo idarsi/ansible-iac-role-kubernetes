@@ -1,0 +1,217 @@
+---
+- name: "Install Kubernetes and deploy an application from the blueprint"
+  hosts: all
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: "Create local Helm chart directory"
+      ansible.builtin.file:
+        path: /opt/molecule-helm-chart/templates
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: "Create local Helm chart metadata"
+      ansible.builtin.copy:
+        dest: /opt/molecule-helm-chart/Chart.yaml
+        content: |
+          apiVersion: v2
+          name: molecule-test
+          description: Molecule Helm application test chart
+          type: application
+          version: 0.1.0
+          appVersion: "1.0"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: "Create local Helm chart template"
+      ansible.builtin.copy:
+        dest: /opt/molecule-helm-chart/templates/configmap.yaml
+        content: |
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: molecule-helm-app
+            namespace: {{ "{{ .Release.Namespace }}" }}
+          data:
+            managed-by: helm
+        owner: root
+        group: root
+        mode: "0644"
+  vars:
+    state: present
+    kubernetes_control_plane_state: present
+    kubernetes_cni_state: present
+    kubernetes_application_manifest: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: molecule-application
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: nginx
+        namespace: molecule-application
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: nginx
+        template:
+          metadata:
+            labels:
+              app: nginx
+          spec:
+            containers:
+              - name: nginx
+                image: docker.io/library/nginx:1.27
+                ports:
+                  - containerPort: 80
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: nginx
+        namespace: molecule-application
+      spec:
+        selector:
+          app: nginx
+        ports:
+          - port: 80
+            targetPort: 80
+    iac_blueprint:
+      kubernetes:
+        applications:
+          - name: nginx
+            state: present
+            manifest: "{{ kubernetes_application_manifest }}"
+          - name: local-helm
+            type: helm
+            state: present
+            chart: /opt/molecule-helm-chart
+            namespace: molecule-helm
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Verify application blueprint idempotence"
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    state: present
+    kubernetes_control_plane_state: present
+    kubernetes_cni_state: present
+    kubernetes_application_manifest: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: molecule-application
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: nginx
+        namespace: molecule-application
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: nginx
+        template:
+          metadata:
+            labels:
+              app: nginx
+          spec:
+            containers:
+              - name: nginx
+                image: docker.io/library/nginx:1.27
+                ports:
+                  - containerPort: 80
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: nginx
+        namespace: molecule-application
+      spec:
+        selector:
+          app: nginx
+        ports:
+          - port: 80
+            targetPort: 80
+    iac_blueprint:
+      kubernetes:
+        applications:
+          - name: nginx
+            state: present
+            manifest: "{{ kubernetes_application_manifest }}"
+          - name: local-helm
+            type: helm
+            state: present
+            chart: /opt/molecule-helm-chart
+            namespace: molecule-helm
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Remove the application declaratively"
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    state: present
+    kubernetes_control_plane_state: present
+    kubernetes_cni_state: present
+    kubernetes_application_manifest: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: molecule-application
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: nginx
+        namespace: molecule-application
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: nginx
+        template:
+          metadata:
+            labels:
+              app: nginx
+          spec:
+            containers:
+              - name: nginx
+                image: docker.io/library/nginx:1.27
+                ports:
+                  - containerPort: 80
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: nginx
+        namespace: molecule-application
+      spec:
+        selector:
+          app: nginx
+        ports:
+          - port: 80
+            targetPort: 80
+    iac_blueprint:
+      kubernetes:
+        applications:
+          - name: nginx
+            state: absent
+            manifest: "{{ kubernetes_application_manifest }}"
+          - name: local-helm
+            type: helm
+            state: absent
+            chart: /opt/molecule-helm-chart
+            namespace: molecule-helm
+  roles:
+    - role: ansible-iac-role-kubernetes

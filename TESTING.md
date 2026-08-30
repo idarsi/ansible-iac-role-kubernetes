@@ -1,6 +1,6 @@
 # Testing
 
-The initial test scenario uses Molecule with the Vagrant driver and the
+The test scenarios use Molecule with the Vagrant driver and the
 libvirt provider. Vagrant creates a real Rocky Linux virtual machine on KVM;
 the scenario does not run inside a Podman container.
 
@@ -15,6 +15,7 @@ Scenario       | Platform             | Coverage
 `kvm-containerd-uninstall` | Rocky Linux 9, KVM | Full Kubernetes uninstall and absence verification
 `kvm-containerd-component-absent` | Rocky Linux 9, KVM | Declarative worker, CNI, and control-plane absence workflow
 `kvm-crio-component-absent` | Rocky Linux 9, KVM | Declarative worker, CNI, and control-plane absence workflow with CRI-O
+`kvm-containerd-application` | Rocky Linux 9, KVM | Manifest and Helm application present, idempotence, and absent workflow
 
 The `kvm-containerd` scenario also bootstraps a single Kubernetes control plane
 with `kubeadm init`, installs the pinned Flannel CNI manifest, and verifies that
@@ -85,6 +86,12 @@ Test the component-level absence workflow with CRI-O:
 
 ```bash
 molecule test -s kvm-crio-component-absent
+```
+
+Test the declarative application lifecycle:
+
+```bash
+molecule test -s kvm-containerd-application
 ```
 
 For faster iteration:

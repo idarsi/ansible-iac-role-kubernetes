@@ -65,10 +65,17 @@ Ensure a worker has joined                     | kubernetes_worker_state: presen
 Remove the worker membership                    | kubernetes_worker_state: absent
 Ensure the CNI exists                          | kubernetes_cni_state: present
 Remove the CNI                                 | kubernetes_cni_state: absent
+Apply or remove declared applications          | applications[].state: present/absent
 
 The component-level `absent` states remove only the selected Kubernetes
 component and preserve the container runtime and Kubernetes packages. Use
 `state: uninstall` or `state: absent` for the complete host removal workflow.
+
+Applications can be declared under `iac_blueprint.kubernetes.applications`.
+The role accepts Kubernetes YAML manifests and Helm charts. Both are applied
+or removed on the control plane. Keep application definitions explicit, pin
+container image and chart versions, and store secrets outside manifests or
+through the deployment's approved secret-management process.
 
 Quick start
 -----------
@@ -190,6 +197,68 @@ The complete workflow can also be expressed as separate desired states:
       kubernetes_worker_state: present
       kubernetes_control_plane_inventory_hostname: kubernetes-control-1
 ```
+
+Application blueprint
+---------------------
+
+Each application requires a DNS-compatible `name`, a declarative `state`, and
+a Kubernetes YAML `manifest`. The manifest may contain one or more Kubernetes
+resources separated with `---`:
+
+```yaml
+iac_blueprint:
+  kubernetes:
+    applications:
+      - name: nginx
+        state: present
+        manifest: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: nginx
+            namespace: example
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: nginx
+            template:
+              metadata:
+                labels:
+                  app: nginx
+              spec:
+                containers:
+                  - name: nginx
+                    image: docker.io/library/nginx:1.27
+```
+
+Set `state: absent` with the same manifest to remove the declared resources.
+Applications are applied only on the control-plane host, after the control
+plane is available. `state: absent` and `state: uninstall` remove declared
+applications before removing the Kubernetes control plane.
+
+Helm application:
+
+```yaml
+iac_blueprint:
+  kubernetes:
+    applications:
+      - name: nginx
+        type: helm
+        state: present
+        chart: nginx
+        repo_url: https://example.org/helm-charts
+        chart_version: 1.2.3
+        release_name: nginx
+        namespace: example
+        values:
+          replicaCount: 2
+```
+
+For a local chart, use an absolute `chart` path on the target control-plane
+host and omit `repo_url` and `chart_version`. Helm is downloaded from the
+official [Helm releases](https://github.com/helm/helm/releases) endpoint with
+a SHA256 checksum when a Helm application is present.
 
 Complete removal
 ----------------
