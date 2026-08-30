@@ -1,0 +1,21 @@
+---
+
+- name: "Converge CRI-O cluster"
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_container_runtime: crio
+    kubernetes_crio_repository_baseurl: >-
+      https://mirrorcache-eu.opensuse.org/repositories/isv:/cri-o:/stable:/v1.34/rpm/
+    kubernetes_crio_repository_gpgkey: >-
+      https://mirrorcache-eu.opensuse.org/repositories/isv:/cri-o:/stable:/v1.34/rpm/repodata/repomd.xml.key
+    kubernetes_control_plane_inventory_hostname: k8s-crio-control-plane-rocky9
+    kubernetes_control_plane_state: >-
+      {{ 'present' if inventory_hostname == 'k8s-crio-control-plane-rocky9' else 'absent' }}
+    kubernetes_worker_state: >-
+      {{ 'present' if inventory_hostname == 'k8s-crio-worker-rocky9' else 'absent' }}
+    kubernetes_cni_state: present
+  roles:
+    - role: ansible-iac-role-kubernetes

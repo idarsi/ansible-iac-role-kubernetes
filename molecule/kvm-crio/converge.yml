@@ -1,0 +1,15 @@
+---
+
+- name: "Converge"
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_container_runtime: crio
+    kubernetes_crio_repository_baseurl: >-
+      https://mirrorcache-eu.opensuse.org/repositories/isv:/cri-o:/stable:/v1.34/rpm/
+    kubernetes_crio_repository_gpgkey: >-
+      https://mirrorcache-eu.opensuse.org/repositories/isv:/cri-o:/stable:/v1.34/rpm/repodata/repomd.xml.key
+  roles:
+    - role: ansible-iac-role-kubernetes

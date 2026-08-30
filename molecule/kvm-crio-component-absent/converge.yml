@@ -1,0 +1,82 @@
+---
+
+- name: "Install CRI-O Kubernetes components before absence verification"
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_container_runtime: crio
+    kubernetes_crio_repository_baseurl: >-
+      https://mirrorcache-eu.opensuse.org/repositories/isv:/cri-o:/stable:/v1.34/rpm/
+    kubernetes_crio_repository_gpgkey: >-
+      https://mirrorcache-eu.opensuse.org/repositories/isv:/cri-o:/stable:/v1.34/rpm/repodata/repomd.xml.key
+    kubernetes_control_plane_inventory_hostname: k8s-crio-component-control-plane-rocky9
+    kubernetes_control_plane_state: >-
+      {{ 'present' if inventory_hostname == 'k8s-crio-component-control-plane-rocky9' else 'absent' }}
+    kubernetes_worker_state: >-
+      {{ 'present' if inventory_hostname == 'k8s-crio-component-worker-rocky9' else 'absent' }}
+    kubernetes_cni_state: >-
+      {{ 'present' if inventory_hostname == 'k8s-crio-component-control-plane-rocky9' else 'absent' }}
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Verify CRI-O Kubernetes resources before component removal"
+  hosts: k8s-crio-component-control-plane-rocky9
+  become: true
+  vars:
+    kubernetes_control_plane_admin_kubeconfig: /etc/kubernetes/admin.conf
+  tasks:
+    - name: "Checking Flannel namespace before CRI-O component removal"
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig={{ kubernetes_control_plane_admin_kubeconfig }}
+          get namespace kube-flannel
+      register: flannel_namespace_before_removal
+      changed_when: false
+
+    - name: "Checking pre-removal CRI-O Kubernetes resources"
+      ansible.builtin.assert:
+        that:
+          - flannel_namespace_before_removal.rc == 0
+        fail_msg: "Flannel namespace was not available before CRI-O component removal"
+
+- name: "Remove CRI-O worker membership"
+  hosts: k8s-crio-component-worker-rocky9
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_container_runtime: crio
+    kubernetes_control_plane_inventory_hostname: k8s-crio-component-control-plane-rocky9
+    kubernetes_control_plane_state: absent
+    kubernetes_worker_state: absent
+    kubernetes_cni_state: absent
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Remove CRI-O control-plane CNI"
+  hosts: k8s-crio-component-control-plane-rocky9
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_container_runtime: crio
+    kubernetes_control_plane_state: present
+    kubernetes_worker_state: absent
+    kubernetes_cni_state: absent
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Remove CRI-O control-plane component"
+  hosts: k8s-crio-component-control-plane-rocky9
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_container_runtime: crio
+    kubernetes_control_plane_state: absent
+    kubernetes_worker_state: absent
+    kubernetes_cni_state: absent
+  roles:
+    - role: ansible-iac-role-kubernetes

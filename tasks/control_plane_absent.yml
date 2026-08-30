@@ -1,0 +1,22 @@
+---
+- name: "Checking Kubernetes control-plane kubeconfig"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_control_plane_admin_kubeconfig }}"
+  register: kubernetes_control_plane_admin_kubeconfig_stat
+
+- name: "Resetting Kubernetes control plane"
+  ansible.builtin.command: kubeadm reset --force
+  register: kubernetes_control_plane_reset
+  changed_when: kubernetes_control_plane_reset.rc == 0
+  failed_when: false
+  when: kubernetes_control_plane_admin_kubeconfig_stat.stat.exists
+
+- name: "Removing Kubernetes control-plane files"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/kubernetes
+    - /var/lib/etcd
+    - "{{ kubernetes_control_plane_kubeconfig }}"
+  when: kubernetes_control_plane_admin_kubeconfig_stat.stat.exists

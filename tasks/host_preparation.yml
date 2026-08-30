@@ -1,0 +1,213 @@
+---
+
+- name: "Disabling active swap"
+  ansible.builtin.command: swapoff --all
+  when:
+    - kubernetes_manage_swap | bool
+    - ansible_facts["swaptotal_mb"] | int > 0
+  changed_when: true
+
+- name: "Disabling swap entries in fstab"
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: "^(\\s*[^#].*\\s+swap\\s+.*)$"
+    replace: "# Kubernetes disabled: \\1"
+  when:
+    - kubernetes_manage_swap | bool
+    - kubernetes_disable_swap_persistently | bool
+
+- name: "Ensuring Kubernetes kernel modules are loaded"
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop: "{{ kubernetes_kernel_modules }}"
+  loop_control:
+    label: "{{ item }}"
+  changed_when: false
+
+- name: "Persisting Kubernetes kernel modules"
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/kubernetes.conf
+    content: "{{ kubernetes_kernel_modules | join('\\n') }}\\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Rendering Kubernetes sysctl configuration"
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-kubernetes.conf
+    content: |
+      {% for key, value in kubernetes_sysctl.items() %}
+      {{ key }} = {{ value }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0644"
+  register: kubernetes_sysctl_config
+  notify: "Apply Kubernetes sysctl configuration"
+
+- name: "Gathering service facts for Kubernetes host preparation"
+  ansible.builtin.service_facts:
+
+- name: "Checking Kubernetes API traffic in firewalld"
+  ansible.builtin.command:
+    cmd: >-
+      firewall-cmd --permanent --query-port={{ kubernetes_control_plane_api_port }}/tcp
+  register: kubernetes_firewalld_api_port_check
+  changed_when: false
+  failed_when: kubernetes_firewalld_api_port_check.rc not in [0, 1]
+  when:
+    - kubernetes_manage_firewalld | bool
+    - kubernetes_control_plane_state == "present"
+    - ansible_facts.services["firewalld.service"] is defined
+    - ansible_facts.services["firewalld.service"].state == "running"
+
+- name: "Allowing Kubernetes API traffic through firewalld"
+  ansible.builtin.command:
+    cmd: >-
+      firewall-cmd --permanent
+      --add-port={{ kubernetes_control_plane_api_port }}/tcp
+  register: kubernetes_firewalld_api_port
+  changed_when: true
+  notify: "Reload firewalld for Kubernetes"
+  when:
+    - kubernetes_manage_firewalld | bool
+    - kubernetes_control_plane_state == "present"
+    - ansible_facts.services["firewalld.service"] is defined
+    - ansible_facts.services["firewalld.service"].state == "running"
+    - kubernetes_firewalld_api_port_check.rc == 1
+
+- name: "Ensuring SELinux policy package is installed"
+  ansible.builtin.package:
+    name: "{{ kubernetes_selinux_package }}"
+    state: present
+  when: kubernetes_manage_selinux | bool
+
+- name: "Ensuring SELinux context management tools are installed"
+  ansible.builtin.package:
+    name: "{{ kubernetes_selinux_tools_package }}"
+    state: present
+  when: kubernetes_manage_selinux | bool
+
+- name: "Ensuring Kubernetes etcd data directory exists"
+  ansible.builtin.file:
+    path: /var/lib/etcd
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_control_plane_state == "present"
+
+- name: "Ensuring Kubernetes CNI host paths exist"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /opt/cni/bin
+    - /etc/cni/net.d
+    - /run/flannel
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_cni_state == "present"
+    - >-
+      kubernetes_control_plane_state == "present" or
+      kubernetes_worker_state == "present"
+
+- name: "Reading managed Kubernetes SELinux file contexts"
+  ansible.builtin.command:
+    cmd: semanage fcontext -l -C
+  register: kubernetes_existing_selinux_contexts
+  changed_when: false
+  when: kubernetes_manage_selinux | bool
+
+- name: "Registering Kubernetes SELinux file contexts"
+  ansible.builtin.command:
+    cmd: >-
+      semanage fcontext --add --type {{ item.type }} {{ item.target }}
+  loop: "{{ kubernetes_selinux_file_contexts }}"
+  loop_control:
+    label: "{{ item.target }}"
+  register: kubernetes_selinux_contexts
+  changed_when: kubernetes_selinux_contexts.rc == 0
+  failed_when: >-
+    kubernetes_selinux_contexts.rc != 0 and
+    "already defined" not in kubernetes_selinux_contexts.stderr
+  when:
+    - kubernetes_manage_selinux | bool
+    - item.target not in kubernetes_existing_selinux_contexts.stdout
+
+- name: "Applying Kubernetes SELinux file contexts"
+  ansible.builtin.command:
+    cmd: "restorecon -vRF {{ item.target | regex_replace('\\(\\.\\*\\)\\?$', '') }}"
+  loop: "{{ kubernetes_selinux_file_contexts }}"
+  loop_control:
+    label: "{{ item.target }}"
+  register: kubernetes_selinux_restorecon
+  changed_when: "'Relabeled' in kubernetes_selinux_restorecon.stdout"
+  failed_when: false
+  when: kubernetes_manage_selinux | bool
+
+- name: "Ensuring existing Kubernetes paths use their SELinux file context"
+  ansible.builtin.command:
+    cmd: >-
+      chcon --type {{ item.type }}
+      {{ item.target | regex_replace('\\(\\.\\*\\)\\?$', '') }}
+  loop: "{{ kubernetes_selinux_file_contexts }}"
+  loop_control:
+    label: "{{ item.target }}"
+  register: kubernetes_selinux_chcon
+  changed_when: kubernetes_selinux_chcon.rc == 0
+  failed_when: false
+  when: kubernetes_manage_selinux | bool
+
+- name: "Ensuring SELinux is in the configured state"
+  ansible.builtin.lineinfile:
+    path: /etc/selinux/config
+    regexp: "^SELINUX="
+    line: "SELINUX={{ kubernetes_selinux_state }}"
+    create: false
+  when: kubernetes_manage_selinux | bool
+
+- name: "Reading current SELinux state"
+  ansible.builtin.command: getenforce
+  register: kubernetes_selinux_current_state
+  changed_when: false
+  when: kubernetes_manage_selinux | bool
+
+- name: "Applying SELinux runtime state"
+  ansible.builtin.command: "setenforce {{ 1 if kubernetes_selinux_state == 'enforcing' else 0 }}"
+  changed_when: true
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_selinux_state in ["enforcing", "permissive"]
+    - >-
+      (kubernetes_selinux_state == "enforcing" and
+       kubernetes_selinux_current_state.stdout != "Enforcing") or
+      (kubernetes_selinux_state == "permissive" and
+       kubernetes_selinux_current_state.stdout == "Enforcing")
+
+- name: "Ensuring selected Kubernetes container runtime"
+  ansible.builtin.include_tasks: "runtime_{{ kubernetes_container_runtime }}.yml"
+
+- name: "Ensuring Kubernetes package repository is configured"
+  ansible.builtin.yum_repository:
+    name: "{{ kubernetes_repository_name }}"
+    description: "{{ kubernetes_repository_description }}"
+    baseurl: "{{ kubernetes_repository_baseurl }}"
+    enabled: true
+    gpgcheck: true
+    gpgkey: "{{ kubernetes_repository_gpgkey }}"
+
+- name: "Ensuring Kubernetes packages are installed"
+  ansible.builtin.package:
+    name: "{{ kubernetes_package_names }}"
+    state: present
+
+- name: "Ensuring kubelet is enabled and started"
+  ansible.builtin.service:
+    name: "{{ kubernetes_kubelet_service_name }}"
+    enabled: true
+    state: started

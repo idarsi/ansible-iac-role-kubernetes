@@ -1,0 +1,74 @@
+---
+
+- name: "Install Kubernetes components before absence verification"
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_control_plane_inventory_hostname: k8s-component-control-plane-rocky9
+    kubernetes_control_plane_state: >-
+      {{ 'present' if inventory_hostname == 'k8s-component-control-plane-rocky9' else 'absent' }}
+    kubernetes_worker_state: >-
+      {{ 'present' if inventory_hostname == 'k8s-component-worker-rocky9' else 'absent' }}
+    kubernetes_cni_state: >-
+      {{ 'present' if inventory_hostname == 'k8s-component-control-plane-rocky9' else 'absent' }}
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Verify Kubernetes resources before component removal"
+  hosts: k8s-component-control-plane-rocky9
+  become: true
+  vars:
+    kubernetes_control_plane_admin_kubeconfig: /etc/kubernetes/admin.conf
+  tasks:
+    - name: "Checking Flannel namespace before removal"
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig={{ kubernetes_control_plane_admin_kubeconfig }}
+          get namespace kube-flannel
+      register: flannel_namespace_before_removal
+      changed_when: false
+
+    - name: "Checking pre-removal Kubernetes resources"
+      ansible.builtin.assert:
+        that:
+          - flannel_namespace_before_removal.rc == 0
+        fail_msg: "Flannel namespace was not available before component removal"
+
+- name: "Remove worker membership"
+  hosts: k8s-component-worker-rocky9
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_control_plane_inventory_hostname: k8s-component-control-plane-rocky9
+    kubernetes_control_plane_state: absent
+    kubernetes_worker_state: absent
+    kubernetes_cni_state: absent
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Remove control-plane CNI"
+  hosts: k8s-component-control-plane-rocky9
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_control_plane_state: present
+    kubernetes_worker_state: absent
+    kubernetes_cni_state: absent
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Remove control-plane component"
+  hosts: k8s-component-control-plane-rocky9
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_control_plane_state: absent
+    kubernetes_worker_state: absent
+    kubernetes_cni_state: absent
+  roles:
+    - role: ansible-iac-role-kubernetes

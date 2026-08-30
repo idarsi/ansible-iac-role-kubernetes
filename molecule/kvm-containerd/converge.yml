@@ -1,0 +1,12 @@
+---
+
+- name: "Converge"
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_control_plane_state: present
+    kubernetes_cni_state: present
+  roles:
+    - role: ansible-iac-role-kubernetes

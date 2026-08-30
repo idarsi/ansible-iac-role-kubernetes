@@ -1,0 +1,57 @@
+---
+- name: "Checking Kubernetes worker kubeconfig"
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubernetes_worker_kubelet_config_stat
+
+- name: "Checking local Kubernetes control-plane kubeconfig"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_control_plane_admin_kubeconfig }}"
+  register: kubernetes_worker_local_admin_kubeconfig_stat
+
+- name: "Checking Kubernetes control-plane kubeconfig for worker removal"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_control_plane_admin_kubeconfig }}"
+  delegate_to: "{{ kubernetes_control_plane_inventory_hostname | default(inventory_hostname, true) }}"
+  become: true
+  register: kubernetes_worker_control_plane_kubeconfig_stat
+  when:
+    - kubernetes_worker_kubelet_config_stat.stat.exists
+    - not kubernetes_worker_local_admin_kubeconfig_stat.stat.exists
+
+- name: "Removing worker node from the control plane"
+  ansible.builtin.command: >-
+    kubectl --kubeconfig={{ kubernetes_control_plane_admin_kubeconfig }}
+    delete node {{ ansible_facts["hostname"] }} --ignore-not-found=true
+  delegate_to: "{{ kubernetes_control_plane_inventory_hostname | default(inventory_hostname, true) }}"
+  become: true
+  register: kubernetes_worker_node_delete
+  changed_when: "'deleted' in kubernetes_worker_node_delete.stdout"
+  failed_when: false
+  when:
+    - kubernetes_worker_kubelet_config_stat.stat.exists
+    - not kubernetes_worker_local_admin_kubeconfig_stat.stat.exists
+    - kubernetes_worker_control_plane_kubeconfig_stat.stat.exists | default(false)
+
+- name: "Resetting Kubernetes worker"
+  ansible.builtin.command: kubeadm reset --force
+  register: kubernetes_worker_reset
+  changed_when: kubernetes_worker_reset.rc == 0
+  failed_when: false
+  when:
+    - kubernetes_worker_kubelet_config_stat.stat.exists
+    - not kubernetes_worker_local_admin_kubeconfig_stat.stat.exists
+
+- name: "Removing Kubernetes worker files"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/kubernetes/kubelet.conf
+    - /var/lib/kubelet
+    - /etc/cni/net.d/10-flannel.conflist
+    - /var/lib/cni
+    - /run/flannel
+  when:
+    - kubernetes_worker_kubelet_config_stat.stat.exists
+    - not kubernetes_worker_local_admin_kubeconfig_stat.stat.exists

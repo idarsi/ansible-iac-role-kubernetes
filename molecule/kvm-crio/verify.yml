@@ -1,0 +1,54 @@
+---
+
+- name: "Verify"
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: "Checking SSH and Ansible connectivity"
+      ansible.builtin.command: id -u
+      register: smoke_id
+      changed_when: false
+
+    - name: "Gathering package facts"
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: "Gathering service facts"
+      ansible.builtin.service_facts:
+
+    - name: "Reading CRI-O configuration"
+      ansible.builtin.slurp:
+        path: /etc/crio/crio.conf.d/02-kubernetes.conf
+      register: crio_config
+
+    - name: "Checking Kubernetes package repository"
+      ansible.builtin.stat:
+        path: /etc/yum.repos.d/kubernetes.repo
+      register: kubernetes_repo
+
+    - name: "Checking SELinux state"
+      ansible.builtin.command: getenforce
+      register: selinux_state
+      changed_when: false
+
+    - name: "Checking CRI-O KVM smoke-test facts"
+      ansible.builtin.assert:
+        that:
+          - smoke_id.stdout == "0"
+          - "'cri-o' in ansible_facts.packages"
+          - "'kubelet' in ansible_facts.packages"
+          - "'kubeadm' in ansible_facts.packages"
+          - "'kubectl' in ansible_facts.packages"
+          - "ansible_facts.services['crio.service'].state == 'running'"
+          - ansible_facts.services["kubelet.service"].status == "enabled"
+          - kubernetes_repo.stat.exists
+          - ansible_facts["swaptotal_mb"] | int == 0
+          - "'cgroup_manager = \"systemd\"' in (crio_config.content | b64decode)"
+          - "'container-selinux' in ansible_facts.packages"
+          - selinux_state.stdout == "Enforcing"
+          - ansible_facts["distribution"] == "Rocky"
+          - ansible_facts["distribution_major_version"] == "9"
+          - ansible_facts["virtualization_type"] != "docker"
+          - ansible_facts["virtualization_type"] != "podman"
+        fail_msg: "CRI-O KVM Molecule smoke test failed"

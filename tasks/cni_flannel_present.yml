@@ -1,0 +1,26 @@
+---
+- name: "Applying Flannel CNI manifest"
+  ansible.builtin.command: >-
+    kubectl --kubeconfig={{ kubernetes_control_plane_admin_kubeconfig }}
+    apply -f {{ kubernetes_flannel_manifest_url }}
+  register: kubernetes_flannel_apply
+  changed_when: >-
+    'created' in kubernetes_flannel_apply.stdout or
+    'configured' in kubernetes_flannel_apply.stdout
+
+- name: "Waiting for Flannel DaemonSet rollout"  # noqa no-handler
+  ansible.builtin.command: >-
+    kubectl --kubeconfig={{ kubernetes_control_plane_admin_kubeconfig }}
+    rollout status daemonset/kube-flannel-ds
+    --namespace=kube-flannel --timeout=180s
+  register: kubernetes_flannel_rollout
+  changed_when: false
+  when: kubernetes_flannel_apply.changed
+
+- name: "Waiting for Kubernetes nodes to become ready"  # noqa no-handler
+  ansible.builtin.command: >-
+    kubectl --kubeconfig={{ kubernetes_control_plane_admin_kubeconfig }}
+    wait --for=condition=Ready node --all --timeout=180s
+  register: kubernetes_nodes_ready
+  changed_when: false
+  when: kubernetes_flannel_apply.changed

@@ -1,0 +1,146 @@
+---
+- name: "Gathering service facts for Kubernetes uninstall"
+  ansible.builtin.service_facts:
+
+- name: "Checking Kubernetes state before uninstall"
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop:
+    - path: "{{ kubernetes_control_plane_admin_kubeconfig }}"
+      register_name: admin_kubeconfig
+    - path: /etc/kubernetes/kubelet.conf
+      register_name: kubelet_config
+  register: kubernetes_state_files
+
+- name: "Setting Kubernetes uninstall state facts"
+  ansible.builtin.set_fact:
+    kubernetes_admin_kubeconfig_exists: >-
+      {{ kubernetes_state_files.results
+         | selectattr('item.register_name', 'equalto', 'admin_kubeconfig')
+         | map(attribute='stat.exists') | first | default(false) }}
+    kubernetes_kubelet_config_exists: >-
+      {{ kubernetes_state_files.results
+         | selectattr('item.register_name', 'equalto', 'kubelet_config')
+         | map(attribute='stat.exists') | first | default(false) }}
+
+- name: "Removing Kubernetes SELinux file contexts"
+  ansible.builtin.command:
+    cmd: semanage fcontext --delete {{ item.target }}
+  loop: "{{ kubernetes_selinux_file_contexts }}"
+  loop_control:
+    label: "{{ item.target }}"
+  register: kubernetes_selinux_context_delete
+  changed_when: kubernetes_selinux_context_delete.rc == 0
+  failed_when: false
+  when: kubernetes_manage_selinux | bool
+
+- name: "Removing Flannel from the Kubernetes control plane"
+  ansible.builtin.command: >-
+    kubectl --kubeconfig={{ kubernetes_control_plane_admin_kubeconfig }}
+    delete -f {{ kubernetes_flannel_manifest_url }}
+    --ignore-not-found=true --wait=false
+  register: kubernetes_flannel_delete
+  changed_when: kubernetes_flannel_delete.rc == 0
+  failed_when: false
+  when:
+    - kubernetes_control_plane_state == "present"
+    - kubernetes_cni == "flannel"
+    - kubernetes_admin_kubeconfig_exists | bool
+
+- name: "Resetting Kubernetes node"
+  ansible.builtin.command: kubeadm reset --force
+  register: kubernetes_reset
+  changed_when: kubernetes_reset.rc == 0
+  failed_when: false
+  when: >-
+    kubernetes_admin_kubeconfig_exists | bool or
+    kubernetes_kubelet_config_exists | bool
+
+- name: "Stopping Kubernetes services"
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - "{{ kubernetes_kubelet_service_name }}"
+    - "{{ kubernetes_containerd_service_name }}"
+    - "{{ kubernetes_crio_service_name }}"
+  when: item + ".service" in ansible_facts.services
+
+- name: "Removing Kubernetes files"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/kubernetes
+    - /var/lib/kubelet
+    - /etc/cni/net.d
+    - /var/lib/cni
+    - /etc/modules-load.d/kubernetes.conf
+    - /etc/sysctl.d/99-kubernetes.conf
+    - "{{ kubernetes_containerd_config_path }}"
+    - "{{ kubernetes_crio_config_path }}"
+    - "{{ kubernetes_control_plane_kubeconfig }}"
+
+- name: "Removing Kubernetes packages"
+  ansible.builtin.package:
+    name: "{{ kubernetes_package_names }}"
+    state: absent
+
+- name: "Removing selected Kubernetes container runtime"
+  ansible.builtin.package:
+    name: >-
+      {{ kubernetes_containerd_package
+         if kubernetes_container_runtime == "containerd"
+         else kubernetes_crio_package }}
+    state: absent
+
+- name: "Removing Kubernetes package repositories"
+  ansible.builtin.yum_repository:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ kubernetes_repository_name }}"
+    - "{{ kubernetes_containerd_repository_name }}"
+    - "{{ kubernetes_crio_repository_name }}"
+
+- name: "Checking Kubernetes API traffic in firewalld"
+  ansible.builtin.command:
+    cmd: >-
+      firewall-cmd --permanent --query-port={{ kubernetes_control_plane_api_port }}/tcp
+  register: kubernetes_firewalld_api_port_check
+  changed_when: false
+  failed_when: kubernetes_firewalld_api_port_check.rc not in [0, 1]
+  when:
+    - kubernetes_manage_firewalld | bool
+    - ansible_facts.services["firewalld.service"] is defined
+    - ansible_facts.services["firewalld.service"].state == "running"
+
+- name: "Removing Kubernetes API traffic from firewalld"
+  ansible.builtin.command:
+    cmd: >-
+      firewall-cmd --permanent
+      --remove-port={{ kubernetes_control_plane_api_port }}/tcp
+  changed_when: true
+  notify: "Reload firewalld for Kubernetes"
+  when:
+    - kubernetes_manage_firewalld | bool
+    - ansible_facts.services["firewalld.service"] is defined
+    - ansible_facts.services["firewalld.service"].state == "running"
+    - kubernetes_firewalld_api_port_check.rc == 0
+
+- name: "Restoring swap entries in fstab"
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: "^# Kubernetes disabled: (.*)$"
+    replace: "\\1"
+  when: kubernetes_disable_swap_persistently | bool
+
+- name: "Re-enabling swap"
+  ansible.builtin.command: swapon --all
+  changed_when: true
+  when: kubernetes_manage_swap | bool
+
+- name: "Applying restored sysctl configuration"
+  ansible.builtin.command: sysctl --system
+  changed_when: true

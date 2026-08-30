@@ -1,0 +1,40 @@
+---
+
+- name: "Ensuring containerd repository is configured"
+  ansible.builtin.yum_repository:
+    name: "{{ kubernetes_containerd_repository_name }}"
+    description: "{{ kubernetes_containerd_repository_description }}"
+    baseurl: "{{ kubernetes_containerd_repository_baseurl }}"
+    enabled: true
+    gpgcheck: true
+    gpgkey: "{{ kubernetes_containerd_repository_gpgkey }}"
+
+- name: "Ensuring containerd is installed"
+  ansible.builtin.package:
+    name: "{{ kubernetes_containerd_package }}"
+    state: present
+  notify: "Restart Kubernetes containerd"
+
+- name: "Generating containerd default configuration"
+  ansible.builtin.command: containerd config default
+  register: kubernetes_containerd_default_config
+  changed_when: false
+  check_mode: false
+
+- name: "Ensuring containerd uses systemd cgroups"
+  ansible.builtin.copy:
+    dest: "{{ kubernetes_containerd_config_path }}"
+    content: >-
+      {{ kubernetes_containerd_default_config.stdout
+         | regex_replace('SystemdCgroup = false', 'SystemdCgroup = true')
+         | regex_replace('enable_selinux = false', 'enable_selinux = true') }}
+    owner: root
+    group: root
+    mode: "0644"
+  notify: "Restart Kubernetes containerd"
+
+- name: "Ensuring containerd is enabled and started"
+  ansible.builtin.service:
+    name: "{{ kubernetes_containerd_service_name }}"
+    enabled: true
+    state: started

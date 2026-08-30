@@ -1,0 +1,39 @@
+---
+
+- name: "Ensuring CRI-O repository is configured"
+  ansible.builtin.yum_repository:
+    name: "{{ kubernetes_crio_repository_name }}"
+    description: "{{ kubernetes_crio_repository_description }}"
+    baseurl: "{{ kubernetes_crio_repository_baseurl }}"
+    enabled: true
+    gpgcheck: true
+    gpgkey: "{{ kubernetes_crio_repository_gpgkey }}"
+
+- name: "Ensuring CRI-O SELinux support is installed"
+  ansible.builtin.package:
+    name: "{{ kubernetes_selinux_package }}"
+    state: present
+  when: kubernetes_manage_selinux | bool
+
+- name: "Ensuring CRI-O is installed"
+  ansible.builtin.package:
+    name: "{{ kubernetes_crio_package }}"
+    state: present
+  notify: "Restart Kubernetes CRI-O"
+
+- name: "Ensuring CRI-O uses systemd cgroups"
+  ansible.builtin.copy:
+    dest: "{{ kubernetes_crio_config_path }}"
+    content: |
+      [crio.runtime]
+      cgroup_manager = "systemd"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: "Restart Kubernetes CRI-O"
+
+- name: "Ensuring CRI-O is enabled and started"
+  ansible.builtin.service:
+    name: "{{ kubernetes_crio_service_name }}"
+    enabled: true
+    state: started

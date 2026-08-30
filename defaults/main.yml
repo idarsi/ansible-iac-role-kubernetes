@@ -1,0 +1,72 @@
+---
+
+iac_supported_os:
+  - { name: "Rocky", versions: ["9", "10"] }
+
+state: present
+kubernetes_control_plane_state: absent
+kubernetes_worker_state: absent
+kubernetes_control_plane_inventory_hostname: ""
+kubernetes_manage_firewalld: true
+kubernetes_control_plane_api_port: 6443
+kubernetes_manage_selinux: true
+kubernetes_selinux_state: enforcing
+kubernetes_selinux_package: container-selinux
+kubernetes_selinux_tools_package: policycoreutils-python-utils
+kubernetes_selinux_file_contexts:
+  - { target: "/etc/kubernetes(/.*)?", type: "container_file_t" }
+  - { target: "/var/lib/etcd(/.*)?", type: "container_file_t" }
+  - { target: "/opt/cni/bin(/.*)?", type: "container_file_t" }
+  - { target: "/etc/cni/net.d(/.*)?", type: "container_file_t" }
+  - { target: "/var/run/flannel(/.*)?", type: "container_file_t" }
+kubernetes_cni: flannel
+kubernetes_cni_state: absent
+kubernetes_flannel_version: v0.28.8
+kubernetes_flannel_manifest_url: "https://github.com/flannel-io/flannel/releases/download/{{ kubernetes_flannel_version }}/kube-flannel.yml"
+kubernetes_control_plane_pod_cidr: 10.244.0.0/16
+kubernetes_control_plane_service_cidr: 10.96.0.0/12
+kubernetes_control_plane_admin_kubeconfig: /etc/kubernetes/admin.conf
+kubernetes_control_plane_kubeconfig: /root/.kube/config
+kubernetes_containerd_cri_socket: unix:///run/containerd/containerd.sock
+kubernetes_crio_cri_socket: unix:///var/run/crio/crio.sock
+kubernetes_version: v1.34
+kubernetes_package_names:
+  - kubelet
+  - kubeadm
+  - kubectl
+kubernetes_repository_name: kubernetes
+kubernetes_repository_description: Kubernetes packages
+kubernetes_repository_baseurl: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_version }}/rpm/"
+kubernetes_repository_gpgkey: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_version }}/rpm/repodata/repomd.xml.key"
+kubernetes_kubelet_service_name: kubelet
+kubernetes_container_runtime: containerd
+kubernetes_manage_swap: true
+kubernetes_disable_swap_persistently: true
+
+kubernetes_kernel_modules:
+  - overlay
+  - br_netfilter
+
+kubernetes_sysctl:
+  net.bridge.bridge-nf-call-iptables: "1"
+  net.bridge.bridge-nf-call-ip6tables: "1"
+  net.ipv4.ip_forward: "1"
+
+kubernetes_containerd_package: containerd.io
+kubernetes_containerd_repository_name: docker-ce-stable
+kubernetes_containerd_repository_description: Docker CE Stable - containerd
+kubernetes_containerd_repository_baseurl: >-
+  https://download.docker.com/linux/centos/$releasever/$basearch/stable
+kubernetes_containerd_repository_gpgkey: https://download.docker.com/linux/centos/gpg
+kubernetes_containerd_config_path: /etc/containerd/config.toml
+kubernetes_containerd_service_name: containerd
+kubernetes_containerd_systemd_cgroup: true
+
+kubernetes_crio_version: "{{ kubernetes_version }}"
+kubernetes_crio_package: cri-o
+kubernetes_crio_repository_name: cri-o
+kubernetes_crio_repository_description: CRI-O stable
+kubernetes_crio_repository_baseurl: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ kubernetes_crio_version }}/rpm/"
+kubernetes_crio_repository_gpgkey: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ kubernetes_crio_version }}/rpm/repodata/repomd.xml.key"
+kubernetes_crio_config_path: /etc/crio/crio.conf.d/02-kubernetes.conf
+kubernetes_crio_service_name: crio

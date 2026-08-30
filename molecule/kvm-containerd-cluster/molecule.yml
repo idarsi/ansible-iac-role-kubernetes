@@ -1,0 +1,31 @@
+---
+
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: k8s-control-plane-rocky9
+    box: generic/rocky9
+    provider_options:
+      graphics_type: none
+      memory: 2048
+      cpus: 2
+  - name: k8s-worker-rocky9
+    box: generic/rocky9
+    provider_options:
+      graphics_type: none
+      memory: 2048
+      cpus: 2
+
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ASYNC_DIR: "${MOLECULE_PROJECT_DIRECTORY}/.ansible_async"
+    ANSIBLE_LOCAL_TEMP: "/tmp/.ansible/tmp"
+    ANSIBLE_REMOTE_TMP: "/tmp/.ansible/tmp"
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+
+verifier:
+  name: ansible

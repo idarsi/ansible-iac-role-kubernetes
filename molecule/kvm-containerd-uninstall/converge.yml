@@ -1,0 +1,21 @@
+---
+
+- name: "Install Kubernetes before uninstall verification"
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    state: present
+    kubernetes_control_plane_state: present
+    kubernetes_cni_state: present
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Uninstall Kubernetes"
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    state: uninstall
+  roles:
+    - role: ansible-iac-role-kubernetes

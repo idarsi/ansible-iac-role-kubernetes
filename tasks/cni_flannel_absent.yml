@@ -1,0 +1,25 @@
+---
+- name: "Checking Kubernetes control-plane kubeconfig for Flannel removal"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_control_plane_admin_kubeconfig }}"
+  register: kubernetes_flannel_admin_kubeconfig
+
+- name: "Removing Flannel CNI manifest"
+  ansible.builtin.command: >-
+    kubectl --kubeconfig={{ kubernetes_control_plane_admin_kubeconfig }}
+    delete -f {{ kubernetes_flannel_manifest_url }}
+    --ignore-not-found=true --wait=false
+  register: kubernetes_flannel_delete
+  changed_when: "'deleted' in kubernetes_flannel_delete.stdout"
+  failed_when: false
+  when: kubernetes_flannel_admin_kubeconfig.stat.exists
+
+- name: "Removing Flannel host configuration"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/cni/net.d/10-flannel.conflist
+    - /run/flannel
+    - /opt/cni/bin/flannel
+  when: kubernetes_flannel_admin_kubeconfig.stat.exists

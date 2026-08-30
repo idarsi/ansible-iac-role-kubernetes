@@ -1,0 +1,66 @@
+---
+
+- name: "Selecting Kubernetes CRI socket"
+  ansible.builtin.set_fact:
+    kubernetes_control_plane_cri_socket: >-
+      {{ kubernetes_containerd_cri_socket
+         if kubernetes_container_runtime == "containerd"
+         else kubernetes_crio_cri_socket }}
+
+- name: "Restoring SELinux context for etcd data before bootstrap"
+  ansible.builtin.command:
+    cmd: "restorecon -vRF /var/lib/etcd"
+  register: kubernetes_etcd_restorecon
+  changed_when: "'Relabeled' in kubernetes_etcd_restorecon.stdout"
+  failed_when: kubernetes_etcd_restorecon.rc != 0
+  when: kubernetes_manage_selinux | bool
+
+- name: "Reading SELinux context for etcd data before bootstrap"
+  ansible.builtin.command:
+    cmd: "ls -Zd /var/lib/etcd"
+  register: kubernetes_etcd_selinux_context
+  changed_when: false
+  when: kubernetes_manage_selinux | bool
+
+- name: "Checking SELinux context for etcd data before bootstrap"
+  ansible.builtin.assert:
+    that:
+      - "'container_file_t' in kubernetes_etcd_selinux_context.stdout"
+    fail_msg: >-
+      /var/lib/etcd does not have the expected container_file_t SELinux
+      context before kubeadm bootstrap: {{ kubernetes_etcd_selinux_context.stdout }}
+  when: kubernetes_manage_selinux | bool
+
+- name: "Initializing Kubernetes control plane"
+  ansible.builtin.command: >-
+    kubeadm init
+    --apiserver-advertise-address={{ ansible_facts["default_ipv4"]["address"] }}
+    --pod-network-cidr={{ kubernetes_control_plane_pod_cidr }}
+    --service-cidr={{ kubernetes_control_plane_service_cidr }}
+    --cri-socket={{ kubernetes_control_plane_cri_socket }}
+  args:
+    creates: "{{ kubernetes_control_plane_admin_kubeconfig }}"
+  register: kubernetes_control_plane_init
+
+- name: "Ensuring root kubeconfig directory exists"
+  ansible.builtin.file:
+    path: "{{ kubernetes_control_plane_kubeconfig | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: "Installing root Kubernetes admin kubeconfig"
+  ansible.builtin.copy:
+    src: "{{ kubernetes_control_plane_admin_kubeconfig }}"
+    dest: "{{ kubernetes_control_plane_kubeconfig }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: "Generating Kubernetes worker join command"
+  ansible.builtin.command: kubeadm token create --print-join-command
+  register: kubernetes_worker_join_command
+  changed_when: false
+  no_log: true

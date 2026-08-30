@@ -1,0 +1,37 @@
+---
+
+- name: "Verify Kubernetes uninstall"
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: "Gathering package facts"
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: "Gathering service facts"
+      ansible.builtin.service_facts:
+
+    - name: "Checking removed Kubernetes files"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/kubernetes
+        - /var/lib/kubelet
+        - /etc/cni/net.d
+        - /etc/sysctl.d/99-kubernetes.conf
+        - /etc/containerd/config.toml
+        - /etc/yum.repos.d/kubernetes.repo
+      register: removed_kubernetes_files
+
+    - name: "Checking Kubernetes uninstall facts"
+      ansible.builtin.assert:
+        that:
+          - "'kubelet' not in ansible_facts.packages"
+          - "'kubeadm' not in ansible_facts.packages"
+          - "'kubectl' not in ansible_facts.packages"
+          - "'containerd.io' not in ansible_facts.packages"
+          - ansible_facts.services.get("kubelet.service", {}).get("state", "absent") != "running"
+          - ansible_facts.services.get("containerd.service", {}).get("state", "absent") != "running"
+          - (removed_kubernetes_files.results | selectattr("stat.exists") | list | length) == 0
+        fail_msg: "Kubernetes uninstall verification failed"

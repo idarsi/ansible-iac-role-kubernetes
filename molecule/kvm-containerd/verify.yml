@@ -1,0 +1,90 @@
+---
+
+- name: "Verify"
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: "Checking SSH and Ansible connectivity"
+      ansible.builtin.command: id -u
+      register: smoke_id
+      changed_when: false
+
+    - name: "Gathering package facts"
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: "Gathering service facts"
+      ansible.builtin.service_facts:
+
+    - name: "Reading Kubernetes kernel module configuration"
+      ansible.builtin.slurp:
+        path: /etc/modules-load.d/kubernetes.conf
+      register: kernel_modules_config
+
+    - name: "Reading Kubernetes sysctl configuration"
+      ansible.builtin.slurp:
+        path: /etc/sysctl.d/99-kubernetes.conf
+      register: sysctl_config
+
+    - name: "Reading containerd configuration"
+      ansible.builtin.slurp:
+        path: /etc/containerd/config.toml
+      register: containerd_config
+
+    - name: "Checking SELinux state"
+      ansible.builtin.command: getenforce
+      register: selinux_state
+      changed_when: false
+
+    - name: "Checking Kubernetes package repository"
+      ansible.builtin.stat:
+        path: /etc/yum.repos.d/kubernetes.repo
+      register: kubernetes_repo
+
+    - name: "Checking control-plane kubeconfig"
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: admin_kubeconfig
+
+    - name: "Checking Kubernetes API server"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig=/etc/kubernetes/admin.conf get node --no-headers
+      register: kubernetes_node
+      changed_when: false
+
+    - name: "Checking Kubernetes node readiness"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig=/etc/kubernetes/admin.conf get node --no-headers
+      register: kubernetes_node_ready
+      changed_when: false
+
+    - name: "Checking containerd KVM test facts"
+      ansible.builtin.assert:
+        that:
+          - smoke_id.stdout == "0"
+          - "'containerd.io' in ansible_facts.packages"
+          - "'kubelet' in ansible_facts.packages"
+          - "'kubeadm' in ansible_facts.packages"
+          - "'kubectl' in ansible_facts.packages"
+          - "ansible_facts.services['containerd.service'].state == 'running'"
+          - ansible_facts.services["kubelet.service"].status == "enabled"
+          - kubernetes_repo.stat.exists
+          - admin_kubeconfig.stat.exists
+          - kubernetes_node.rc == 0
+          - "'k8s-containerd-rocky9' in kubernetes_node.stdout"
+          - "' Ready ' in kubernetes_node_ready.stdout"
+          - ansible_facts["swaptotal_mb"] | int == 0
+          - "'overlay' in (kernel_modules_config.content | b64decode)"
+          - "'br_netfilter' in (kernel_modules_config.content | b64decode)"
+          - "'net.ipv4.ip_forward = 1' in (sysctl_config.content | b64decode)"
+          - "'SystemdCgroup = true' in (containerd_config.content | b64decode)"
+          - "'enable_selinux = true' in (containerd_config.content | b64decode)"
+          - selinux_state.stdout == "Enforcing"
+          - "'container-selinux' in ansible_facts.packages"
+          - "'policycoreutils-python-utils' in ansible_facts.packages"
+          - ansible_facts["distribution"] == "Rocky"
+          - ansible_facts["distribution_major_version"] == "9"
+          - ansible_facts["virtualization_type"] != "docker"
+          - ansible_facts["virtualization_type"] != "podman"
+        fail_msg: "containerd KVM Molecule test failed"

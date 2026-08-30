@@ -1,0 +1,9 @@
+---
+- name: "Joining Kubernetes worker node to the control plane"
+  ansible.builtin.command: >-
+    {{ hostvars[kubernetes_control_plane_inventory_hostname]
+       .kubernetes_worker_join_command.stdout }}
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+  register: kubernetes_worker_join
+  no_log: true

@@ -1,0 +1,58 @@
+---
+
+- name: "Verify"
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: "Checking SSH and Ansible connectivity"
+      ansible.builtin.command: id -u
+      register: smoke_id
+      changed_when: false
+
+    - name: "Gathering package facts"
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: "Gathering service facts"
+      ansible.builtin.service_facts:
+
+    - name: "Checking worker kubelet configuration"
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: worker_kubelet_config
+      when: inventory_hostname == "k8s-worker-rocky9"
+
+    - name: "Checking cluster nodes from the control plane"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes --no-headers
+      register: cluster_nodes
+      changed_when: false
+      when: inventory_hostname == "k8s-control-plane-rocky9"
+
+    - name: "Checking Kubernetes cluster join facts"
+      ansible.builtin.assert:
+        that:
+          - smoke_id.stdout == "0"
+          - "'containerd.io' in ansible_facts.packages"
+          - "'kubelet' in ansible_facts.packages"
+          - "'kubeadm' in ansible_facts.packages"
+          - ansible_facts.services["containerd.service"].state == "running"
+          - ansible_facts.services["kubelet.service"].status == "enabled"
+          - ansible_facts["swaptotal_mb"] | int == 0
+          - ansible_facts["distribution"] == "Rocky"
+          - ansible_facts["distribution_major_version"] == "9"
+          - ansible_facts["virtualization_type"] not in ["docker", "podman"]
+          - worker_kubelet_config.stat.exists
+        fail_msg: "Worker node did not join the Kubernetes cluster"
+      when: inventory_hostname == "k8s-worker-rocky9"
+
+    - name: "Checking control-plane cluster membership"
+      ansible.builtin.assert:
+        that:
+          - cluster_nodes.rc == 0
+          - "'k8s-control-plane-rocky9' in cluster_nodes.stdout"
+          - "'k8s-worker-rocky9' in cluster_nodes.stdout"
+          - "' Ready ' in cluster_nodes.stdout"
+        fail_msg: "Kubernetes cluster membership verification failed"
+      when: inventory_hostname == "k8s-control-plane-rocky9"
