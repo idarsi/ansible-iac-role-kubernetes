@@ -1,0 +1,44 @@
+---
+- name: "Verify declarative Kubernetes application lifecycle"
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "Check removed application namespace"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig=/etc/kubernetes/admin.conf get namespace molecule-application
+      register: application_namespace
+      changed_when: false
+      failed_when: false
+
+    - name: "Check removed application deployment"
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig=/etc/kubernetes/admin.conf get deployment nginx
+          --namespace=molecule-application
+      register: application_deployment
+      changed_when: false
+      failed_when: false
+
+    - name: "Check removed Helm release"
+      ansible.builtin.command:
+        cmd: helm status local-helm --namespace=molecule-helm
+      register: helm_release
+      changed_when: false
+      failed_when: false
+
+    - name: "Check removed Helm resource"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig=/etc/kubernetes/admin.conf get configmap molecule-helm-app --namespace=molecule-helm
+      register: helm_configmap
+      changed_when: false
+      failed_when: false
+
+    - name: "Verify application was removed declaratively"
+      ansible.builtin.assert:
+        that:
+          - application_namespace.rc != 0
+          - application_deployment.rc != 0
+          - helm_release.rc != 0
+          - helm_configmap.rc != 0
+        fail_msg: "Kubernetes application declarative removal failed"

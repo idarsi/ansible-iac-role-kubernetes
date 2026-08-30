@@ -1,0 +1,50 @@
+---
+- name: "Selecting Helm binary architecture"
+  ansible.builtin.set_fact:
+    kubernetes_helm_architecture: >-
+      {{ {
+        "x86_64": "amd64",
+        "aarch64": "arm64",
+        "armv7l": "arm"
+      }.get(ansible_facts["architecture"], "") }}
+
+- name: "Checking Helm binary architecture"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_helm_architecture | length > 0
+    fail_msg: >-
+      Unsupported architecture for the Helm client:
+      {{ ansible_facts["architecture"] }}
+
+- name: "Creating Helm download directory"
+  ansible.builtin.file:
+    path: "{{ kubernetes_helm_archive_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: "Downloading pinned Helm client"
+  ansible.builtin.get_url:
+    url: "{{ kubernetes_helm_download_baseurl }}/helm-{{ kubernetes_helm_version }}-linux-{{ kubernetes_helm_architecture }}.tar.gz"
+    dest: "{{ kubernetes_helm_archive_dir }}/helm-{{ kubernetes_helm_version }}-linux-{{ kubernetes_helm_architecture }}.tar.gz"
+    checksum: "sha256:{{ kubernetes_helm_download_baseurl }}/helm-{{ kubernetes_helm_version }}-linux-{{ kubernetes_helm_architecture }}.tar.gz.sha256sum"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: "Extracting pinned Helm client"
+  ansible.builtin.unarchive:
+    src: "{{ kubernetes_helm_archive_dir }}/helm-{{ kubernetes_helm_version }}-linux-{{ kubernetes_helm_architecture }}.tar.gz"
+    dest: "{{ kubernetes_helm_archive_dir }}"
+    remote_src: true
+    creates: "{{ kubernetes_helm_archive_dir }}/linux-{{ kubernetes_helm_architecture }}/helm"
+
+- name: "Installing pinned Helm client"
+  ansible.builtin.copy:
+    src: "{{ kubernetes_helm_archive_dir }}/linux-{{ kubernetes_helm_architecture }}/helm"
+    dest: "{{ kubernetes_helm_binary_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"

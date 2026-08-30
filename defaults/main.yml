@@ -23,6 +23,12 @@ kubernetes_cni: flannel
 kubernetes_cni_state: absent
 kubernetes_flannel_version: v0.28.8
 kubernetes_flannel_manifest_url: "https://github.com/flannel-io/flannel/releases/download/{{ kubernetes_flannel_version }}/kube-flannel.yml"
+kubernetes_applications: []
+kubernetes_helm_install: true
+kubernetes_helm_version: v4.2.0
+kubernetes_helm_binary_path: /usr/local/bin/helm
+kubernetes_helm_download_baseurl: https://get.helm.sh
+kubernetes_helm_archive_dir: /var/cache/ansible-iac-role-kubernetes
 kubernetes_control_plane_pod_cidr: 10.244.0.0/16
 kubernetes_control_plane_service_cidr: 10.96.0.0/12
 kubernetes_control_plane_admin_kubeconfig: /etc/kubernetes/admin.conf

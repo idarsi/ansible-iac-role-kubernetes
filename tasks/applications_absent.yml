@@ -1,0 +1,50 @@
+---
+- name: "Checking Kubernetes admin kubeconfig before application removal"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_control_plane_admin_kubeconfig }}"
+  register: kubernetes_applications_absent_admin_kubeconfig
+
+- name: "Removing Kubernetes applications before host removal"
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig={{ kubernetes_control_plane_admin_kubeconfig }}
+      - delete
+      - --ignore-not-found=true
+      - -f
+      - "-"
+    stdin: "{{ item.manifest }}"
+    stdin_add_newline: true
+  register: kubernetes_application_uninstall
+  changed_when: >-
+    "deleted" in kubernetes_application_uninstall.stdout or
+    "deleted" in kubernetes_application_uninstall.stderr
+  failed_when: kubernetes_application_uninstall.rc != 0
+  loop: >-
+    {{ kubernetes_manifest_applications }}
+  loop_control:
+    label: "{{ item.name }}"
+  when: kubernetes_applications_absent_admin_kubeconfig.stat.exists
+
+- name: "Removing Kubernetes Helm applications before host removal"
+  ansible.builtin.command:
+    argv:
+      - "{{ kubernetes_helm_binary_path }}"
+      - uninstall
+      - "{{ item.release_name | default(item.name) }}"
+      - --namespace
+      - "{{ item.namespace }}"
+      - --ignore-not-found
+  register: kubernetes_helm_uninstall_result
+  changed_when: kubernetes_helm_uninstall_result.rc == 0
+  failed_when: kubernetes_helm_uninstall_result.rc != 0
+  no_log: true
+  loop: >-
+    {{ kubernetes_applications
+       | selectattr('type', 'defined')
+       | selectattr('type', 'equalto', 'helm') | list }}
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - kubernetes_applications_absent_admin_kubeconfig.stat.exists
+    - kubernetes_helm_install | bool

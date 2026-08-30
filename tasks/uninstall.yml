@@ -81,6 +81,8 @@
     - "{{ kubernetes_containerd_config_path }}"
     - "{{ kubernetes_crio_config_path }}"
     - "{{ kubernetes_control_plane_kubeconfig }}"
+    - "{{ kubernetes_helm_binary_path }}"
+    - "{{ kubernetes_helm_archive_dir }}"
 
 - name: "Removing Kubernetes packages"
   ansible.builtin.package:

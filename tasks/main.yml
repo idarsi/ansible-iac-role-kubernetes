@@ -15,6 +15,57 @@
       {{ ansible_facts["distribution"] }}
       {{ ansible_facts["distribution_major_version"] }}
 
+- name: "Reading Kubernetes application blueprint"
+  ansible.builtin.set_fact:
+    kubernetes_applications: >-
+      {{ ((iac_blueprint | default({})).get("kubernetes", {})).get(
+         "applications", kubernetes_applications | default([])) }}
+
+- name: "Classifying Kubernetes application blueprint entries"
+  ansible.builtin.set_fact:
+    kubernetes_manifest_applications: >-
+      {{ (kubernetes_applications | selectattr("type", "undefined") | list)
+         | union(kubernetes_applications
+                | selectattr("type", "defined")
+                | selectattr("type", "equalto", "manifest") | list) }}
+
+- name: "Checking Kubernetes application blueprint"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_applications | type_debug == "list"
+      - item | type_debug == "dict"
+      - item.name is defined
+      - item.name is match("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+      - item.name | length <= 63
+      - item.state is defined
+      - item.state in ["present", "absent"]
+      - (item.type | default("manifest")) in ["manifest", "helm"]
+      - item.manifest is defined
+        or (item.type | default("manifest")) == "helm"
+      - (item.manifest | default("")) | type_debug == "str"
+      - (item.manifest | default("")) | trim | length > 0
+        or (item.type | default("manifest")) == "helm"
+      - item.chart is defined
+        or (item.type | default("manifest")) == "manifest"
+      - item.repo_url is defined
+        or (item.chart | default("") | string) is match("^/")
+        or (item.type | default("manifest")) == "manifest"
+      - (item.repo_url | default("")) is match("^https://")
+        or (item.repo_url | default("")) == ""
+      - item.namespace is defined
+        or (item.type | default("manifest")) == "manifest"
+      - item.chart_version is defined
+        or (item.repo_url | default("")) == ""
+        or (item.type | default("manifest")) == "manifest"
+      - item.get("values", {}) | type_debug == "dict"
+    fail_msg: >-
+      Invalid Kubernetes application definition. Manifest applications require
+      a non-empty manifest. Helm applications require a chart, namespace, and
+      HTTPS repo_url or an absolute local chart path.
+  loop: "{{ kubernetes_applications }}"
+  loop_control:
+    label: "{{ item.name | default('unnamed') }}"
+
 - name: "Checking if container runtime is supported"
   ansible.builtin.assert:
     that:
@@ -63,6 +114,12 @@
       Unsupported Kubernetes CNI configuration:
       {{ kubernetes_cni }} / {{ kubernetes_cni_state }}
 
+- name: "Removing Kubernetes applications"
+  ansible.builtin.include_tasks: applications_absent.yml
+  when:
+    - state in ["absent", "uninstall"]
+    - kubernetes_applications | length > 0
+
 - name: "Uninstalling Kubernetes"
   ansible.builtin.include_tasks: uninstall.yml
   when: state in ["absent", "uninstall"]
@@ -95,6 +152,15 @@
     - kubernetes_cni_state == "present"
     - kubernetes_control_plane_inventory_hostname | length == 0
       or inventory_hostname == kubernetes_control_plane_inventory_hostname
+
+- name: "Ensuring Kubernetes applications are present or absent"
+  ansible.builtin.include_tasks: applications.yml
+  when:
+    - state in ["present", "install"]
+    - kubernetes_control_plane_state == "present"
+    - kubernetes_control_plane_inventory_hostname | length == 0
+      or inventory_hostname == kubernetes_control_plane_inventory_hostname
+    - kubernetes_applications | length > 0
 
 - name: "Ensuring Kubernetes control plane is absent"
   ansible.builtin.include_tasks: control_plane_absent.yml
