@@ -37,6 +37,17 @@
       register: selinux_state
       changed_when: false
 
+    - name: "Checking Kubernetes SELinux context"
+      ansible.builtin.command: ls -Zd /etc/kubernetes
+      register: kubernetes_selinux_context
+      changed_when: false
+
+    - name: "Checking Kubernetes SELinux relabel drift"
+      ansible.builtin.command:
+        cmd: restorecon -n -vR /etc/kubernetes
+      register: kubernetes_selinux_relabel_precheck
+      changed_when: false
+
     - name: "Checking Kubernetes package repository"
       ansible.builtin.stat:
         path: /etc/yum.repos.d/kubernetes.repo
@@ -81,6 +92,9 @@
           - "'SystemdCgroup = true' in (containerd_config.content | b64decode)"
           - "'enable_selinux = true' in (containerd_config.content | b64decode)"
           - selinux_state.stdout == "Enforcing"
+          - "'container_file_t' in kubernetes_selinux_context.stdout"
+          - kubernetes_selinux_relabel_precheck.rc == 0
+          - "'Would relabel' not in kubernetes_selinux_relabel_precheck.stdout"
           - "'container-selinux' in ansible_facts.packages"
           - "'policycoreutils-python-utils' in ansible_facts.packages"
           - ansible_facts["distribution"] == "Rocky"

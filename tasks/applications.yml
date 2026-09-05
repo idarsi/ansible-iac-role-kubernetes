@@ -20,7 +20,7 @@
       - apply
       - -f
       - "-"
-    stdin: "{{ item.manifest }}"
+    stdin: "{{ kubernetes_manifest_record.manifest }}"
     stdin_add_newline: true
   register: kubernetes_application_apply
   changed_when: >-
@@ -32,73 +32,32 @@
     {{ kubernetes_manifest_applications
        | selectattr('state', 'equalto', 'present') | list }}
   loop_control:
-    label: "{{ item.name }}"
+    loop_var: kubernetes_manifest_record
+    label: "{{ kubernetes_manifest_record.name }}"
 
 - name: "Installing Kubernetes Helm applications"
-  ansible.builtin.command:
-    argv:
-      - "{{ kubernetes_helm_binary_path }}"
-      - upgrade
-      - --install
-      - "{{ item.release_name | default(item.name) }}"
-      - "{{ item.chart }}"
-      - --namespace
-      - "{{ item.namespace }}"
-      - --create-namespace
-      - --wait
-      - --timeout
-      - "{{ item.timeout | default('5m') }}"
-      - --values
-      - "-"
-      - --repo
-      - "{{ item.repo_url }}"
-      - --version
-      - "{{ item.chart_version }}"
-    stdin: "{{ item.get('values', {}) | to_nice_yaml }}"
-    stdin_add_newline: true
-  register: kubernetes_helm_install_result
-  changed_when: true
-  failed_when: kubernetes_helm_install_result.rc != 0
-  no_log: true
+  ansible.builtin.include_tasks: helm_application_present.yml
   loop: >-
-    {{ kubernetes_applications
-       | selectattr('type', 'defined')
-       | selectattr('type', 'equalto', 'helm')
+       {{ kubernetes_applications
+        | selectattr('type', 'equalto', 'helm')
        | selectattr('state', 'equalto', 'present')
        | selectattr('repo_url', 'defined') | list }}
   loop_control:
-    label: "{{ item.name }}"
+    loop_var: kubernetes_helm_record
+    label: "{{ kubernetes_helm_record.name }}"
 
 - name: "Installing Kubernetes local Helm charts"
-  ansible.builtin.command:
-    argv:
-      - "{{ kubernetes_helm_binary_path }}"
-      - upgrade
-      - --install
-      - "{{ item.release_name | default(item.name) }}"
-      - "{{ item.chart }}"
-      - --namespace
-      - "{{ item.namespace }}"
-      - --create-namespace
-      - --wait
-      - --timeout
-      - "{{ item.timeout | default('5m') }}"
-      - --values
-      - "-"
-    stdin: "{{ item.get('values', {}) | to_nice_yaml }}"
-    stdin_add_newline: true
-  register: kubernetes_helm_local_install_result
-  changed_when: true
-  failed_when: kubernetes_helm_local_install_result.rc != 0
-  no_log: true
+  ansible.builtin.include_tasks: helm_application_present.yml
+  vars:
+    kubernetes_helm_record: "{{ kubernetes_local_helm_record }}"
   loop: >-
-    {{ kubernetes_applications
-       | selectattr('type', 'defined')
-       | selectattr('type', 'equalto', 'helm')
+       {{ kubernetes_applications
+        | selectattr('type', 'equalto', 'helm')
        | selectattr('state', 'equalto', 'present')
        | selectattr('repo_url', 'undefined') | list }}
   loop_control:
-    label: "{{ item.name }}"
+    loop_var: kubernetes_local_helm_record
+    label: "{{ kubernetes_local_helm_record.name }}"
 
 - name: "Removing Kubernetes application manifests"
   ansible.builtin.command:
@@ -109,7 +68,7 @@
       - --ignore-not-found=true
       - -f
       - "-"
-    stdin: "{{ item.manifest }}"
+    stdin: "{{ kubernetes_absent_manifest_record.manifest }}"
     stdin_add_newline: true
   register: kubernetes_application_delete
   changed_when: >-
@@ -120,25 +79,30 @@
     {{ kubernetes_manifest_applications
        | selectattr('state', 'equalto', 'absent') | list }}
   loop_control:
-    label: "{{ item.name }}"
+    loop_var: kubernetes_absent_manifest_record
+    label: "{{ kubernetes_absent_manifest_record.name }}"
 
 - name: "Removing Kubernetes Helm applications"
   ansible.builtin.command:
     argv:
       - "{{ kubernetes_helm_binary_path }}"
       - uninstall
-      - "{{ item.release_name | default(item.name) }}"
+      - "{{ kubernetes_absent_helm_record.release_name | default(kubernetes_absent_helm_record.name) }}"
       - --namespace
-      - "{{ item.namespace }}"
+      - "{{ kubernetes_absent_helm_record.namespace }}"
+      - --kubeconfig
+      - "{{ kubernetes_control_plane_admin_kubeconfig }}"
       - --ignore-not-found
   register: kubernetes_helm_delete_result
-  changed_when: "kubernetes_helm_delete_result.rc == 0"
+  changed_when: >-
+    "uninstalled" in kubernetes_helm_delete_result.stdout or
+    "uninstalled" in kubernetes_helm_delete_result.stderr
   failed_when: kubernetes_helm_delete_result.rc != 0
   no_log: true
   loop: >-
-    {{ kubernetes_applications
-       | selectattr('type', 'defined')
-       | selectattr('type', 'equalto', 'helm')
+       {{ kubernetes_applications
+        | selectattr('type', 'equalto', 'helm')
        | selectattr('state', 'equalto', 'absent') | list }}
   loop_control:
-    label: "{{ item.name }}"
+    loop_var: kubernetes_absent_helm_record
+    label: "{{ kubernetes_absent_helm_record.name }}"

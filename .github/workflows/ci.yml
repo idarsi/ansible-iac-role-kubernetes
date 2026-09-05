@@ -1,0 +1,37 @@
+name: "CI"
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 6"
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-ci.txt
+      - run: >-
+          for file in molecule/*/converge.yml; do
+            export ANSIBLE_ROLES_PATH="$GITHUB_WORKSPACE/.."
+            ansible-playbook --syntax-check -i 'localhost,' "$file";
+          done
+      - run: ANSIBLE_ROLES_PATH="$GITHUB_WORKSPACE/.." ansible-lint --profile production
+      - run: ANSIBLE_ROLES_PATH="$GITHUB_WORKSPACE/.." molecule test -s validation
+
+  functional-baseline:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, kvm]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-ci.txt
+      - run: ANSIBLE_ROLES_PATH="$GITHUB_WORKSPACE/.." molecule test -s kvm-containerd

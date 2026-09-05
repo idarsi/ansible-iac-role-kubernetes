@@ -1,0 +1,91 @@
+---
+- name: "Validate Kubernetes application record types and identities"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_application_record is mapping
+      - kubernetes_application_record.name is defined
+      - kubernetes_application_record.name is string
+      - kubernetes_application_record.name is match("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+      - kubernetes_application_record.name | length <= 63
+      - kubernetes_application_record.state is defined
+      - kubernetes_application_record.state in ["present", "absent"]
+      - kubernetes_application_record.type | default("manifest") in ["manifest", "helm"]
+      - kubernetes_application_record.get("values", {}) is mapping
+      - >-
+        kubernetes_application_record.type | default("manifest") == "helm" or
+        (kubernetes_application_record.manifest is defined and
+        kubernetes_application_record.manifest is string and
+        kubernetes_application_record.manifest | trim | length > 0)
+      - >-
+        kubernetes_application_record.type | default("manifest") == "manifest" or
+        (kubernetes_application_record.chart is defined and
+        kubernetes_application_record.namespace is defined and
+        kubernetes_application_record.namespace is string and
+        kubernetes_application_record.namespace | length > 0)
+      - >-
+        kubernetes_application_record.type | default("manifest") == "manifest" or
+        kubernetes_application_record.repo_url is not defined or
+        kubernetes_application_record.repo_url is match("^https://")
+      - >-
+        kubernetes_application_record.type | default("manifest") == "manifest" or
+        kubernetes_application_record.repo_url is not defined or
+        kubernetes_application_record.chart_version is defined
+      - >-
+        kubernetes_application_record.type | default("manifest") == "manifest" or
+        kubernetes_application_record.repo_url is defined or
+        kubernetes_application_record.chart is match("^/")
+    fail_msg: >-
+      Invalid Kubernetes application '{{ kubernetes_application_record.name | default('unnamed') }}'.
+      Manifest records require a non-empty manifest. Helm records require chart,
+      namespace, and either an HTTPS repo_url with chart_version or an absolute local chart path.
+  loop: "{{ kubernetes_applications }}"
+  loop_control:
+    loop_var: kubernetes_application_record
+    label: "{{ kubernetes_application_record.name | default('unnamed') }}"
+
+- name: "Validate Helm application fields"
+  ansible.builtin.assert:
+    that:
+      - >-
+        kubernetes_application_record.type | default("manifest") != "helm" or
+        kubernetes_application_record.chart is string
+      - >-
+        kubernetes_application_record.type | default("manifest") != "helm" or
+        kubernetes_application_record.chart | length > 0
+      - >-
+        kubernetes_application_record.type | default("manifest") != "helm" or
+        kubernetes_application_record.namespace is match("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+      - >-
+        kubernetes_application_record.type | default("manifest") != "helm" or
+        kubernetes_application_record.namespace | length <= 63
+      - >-
+        kubernetes_application_record.type | default("manifest") != "helm" or
+        kubernetes_application_record.release_name is not defined or
+        kubernetes_application_record.release_name is match("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+      - >-
+        kubernetes_application_record.type | default("manifest") != "helm" or
+        kubernetes_application_record.release_name is not defined or
+        kubernetes_application_record.release_name | length <= 53
+      - >-
+        kubernetes_application_record.type | default("manifest") != "helm" or
+        kubernetes_application_record.timeout | default("5m") is match("^[0-9]+(ns|us|µs|ms|s|m|h)$")
+      - >-
+        kubernetes_application_record.type | default("manifest") != "helm" or
+        kubernetes_application_record.repo_url is not defined or
+        kubernetes_application_record.chart_version is string
+      - >-
+        kubernetes_application_record.type | default("manifest") != "helm" or
+        kubernetes_application_record.repo_url is not defined or
+        kubernetes_application_record.chart_version | length > 0
+    fail_msg: >-
+      Invalid Helm application '{{ kubernetes_application_record.name | default('unnamed') }}':
+      release_name, namespace, chart, timeout, and chart_version must be valid.
+  loop: "{{ kubernetes_applications }}"
+  loop_control:
+    loop_var: kubernetes_application_record
+    label: "{{ kubernetes_application_record.name | default('unnamed') }}"
+
+- name: "Reject duplicate Kubernetes application identities"
+  ansible.builtin.assert:
+    that: kubernetes_applications | map(attribute="name") | list | unique | length == kubernetes_applications | length
+    fail_msg: "Kubernetes application names must be unique: {{ kubernetes_applications | map(attribute='name') | list }}"

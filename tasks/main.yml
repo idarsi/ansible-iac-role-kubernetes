@@ -4,115 +4,67 @@
   ansible.builtin.assert:
     that:
       - ansible_facts["distribution"] in (iac_supported_os | map(attribute="name") | list)
-      - ansible_facts["distribution_major_version"] in (
-          iac_supported_os
-          | selectattr("name", "equalto", ansible_facts["distribution"])
-          | map(attribute="versions")
-          | first
-        )
-    fail_msg: >-
-      Unsupported operating system:
-      {{ ansible_facts["distribution"] }}
-      {{ ansible_facts["distribution_major_version"] }}
+      - >-
+        ansible_facts["distribution_major_version"] in
+        (iac_supported_os | selectattr("name", "equalto", ansible_facts["distribution"])
+        | map(attribute="versions") | first)
+    fail_msg: "Unsupported operating system: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_major_version'] }}"
 
-- name: "Reading Kubernetes application blueprint"
+- name: "Require Kubernetes blueprint root"
+  ansible.builtin.assert:
+    that:
+      - iac_blueprint is mapping
+      - iac_blueprint.kubernetes is defined
+      - iac_blueprint.kubernetes is mapping
+    fail_msg: "iac_blueprint.kubernetes is required and must be a mapping; no host changes were made."
+
+- name: "Validate requested Kubernetes state"
+  ansible.builtin.assert:
+    that: state in ["validate", "present", "absent", "install", "uninstall"]
+    fail_msg: "Unsupported Kubernetes state '{{ state }}'; use validate, present, absent, install, or uninstall."
+
+- name: "Normalize Kubernetes public blueprint"
+  ansible.builtin.set_fact:
+    kubernetes_blueprint: "{{ iac_blueprint.kubernetes }}"
+    kubernetes_application_records_input: "{{ iac_blueprint.kubernetes.applications | default(kubernetes_applications | default([]), true) }}"
+    kubernetes_container_runtime: "{{ iac_blueprint.kubernetes.container_runtime | default(kubernetes_container_runtime) }}"
+    kubernetes_selinux_state: "{{ iac_blueprint.kubernetes.selinux_state | default(kubernetes_selinux_state) }}"
+    kubernetes_control_plane_state: "{{ iac_blueprint.kubernetes.control_plane_state | default(kubernetes_control_plane_state) }}"
+    kubernetes_worker_state: "{{ iac_blueprint.kubernetes.worker_state | default(kubernetes_worker_state) }}"
+    kubernetes_cni: "{{ iac_blueprint.kubernetes.cni | default(kubernetes_cni) }}"
+    kubernetes_cni_state: "{{ iac_blueprint.kubernetes.cni_state | default(kubernetes_cni_state) }}"
+    kubernetes_control_plane_api_port: "{{ iac_blueprint.kubernetes.api_port | default(kubernetes_control_plane_api_port) }}"
+    kubernetes_control_plane_inventory_hostname: >-
+       {{ iac_blueprint.kubernetes.control_plane_inventory_hostname
+          | default(kubernetes_control_plane_inventory_hostname) }}
+
+- name: "Normalize Kubernetes application record types"
+  ansible.builtin.set_fact:
+    kubernetes_applications: []
+
+- name: "Default omitted Kubernetes application types to manifests"
   ansible.builtin.set_fact:
     kubernetes_applications: >-
-      {{ ((iac_blueprint | default({})).get("kubernetes", {})).get(
-         "applications", kubernetes_applications | default([])) }}
+      {{ kubernetes_applications +
+         [kubernetes_application_record | combine({
+           "type": kubernetes_application_record.type | default("manifest")
+         }) if kubernetes_application_record is mapping else kubernetes_application_record] }}
+  loop: "{{ kubernetes_application_records_input }}"
+  loop_control:
+    loop_var: kubernetes_application_record
 
-- name: "Classifying Kubernetes application blueprint entries"
+- name: "Validate Kubernetes inventory blueprint before mutation"
+  ansible.builtin.include_tasks: validate/validate_inventory.yml
+
+- name: "Classify normalized Kubernetes applications"
   ansible.builtin.set_fact:
     kubernetes_manifest_applications: >-
-      {{ (kubernetes_applications | selectattr("type", "undefined") | list)
-         | union(kubernetes_applications
-                | selectattr("type", "defined")
-                | selectattr("type", "equalto", "manifest") | list) }}
+      {{ kubernetes_applications | selectattr('type', 'equalto', 'manifest') | list }}
 
-- name: "Checking Kubernetes application blueprint"
-  ansible.builtin.assert:
-    that:
-      - kubernetes_applications | type_debug == "list"
-      - item | type_debug == "dict"
-      - item.name is defined
-      - item.name is match("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
-      - item.name | length <= 63
-      - item.state is defined
-      - item.state in ["present", "absent"]
-      - (item.type | default("manifest")) in ["manifest", "helm"]
-      - item.manifest is defined
-        or (item.type | default("manifest")) == "helm"
-      - (item.manifest | default("")) | type_debug == "str"
-      - (item.manifest | default("")) | trim | length > 0
-        or (item.type | default("manifest")) == "helm"
-      - item.chart is defined
-        or (item.type | default("manifest")) == "manifest"
-      - item.repo_url is defined
-        or (item.chart | default("") | string) is match("^/")
-        or (item.type | default("manifest")) == "manifest"
-      - (item.repo_url | default("")) is match("^https://")
-        or (item.repo_url | default("")) == ""
-      - item.namespace is defined
-        or (item.type | default("manifest")) == "manifest"
-      - item.chart_version is defined
-        or (item.repo_url | default("")) == ""
-        or (item.type | default("manifest")) == "manifest"
-      - item.get("values", {}) | type_debug == "dict"
-    fail_msg: >-
-      Invalid Kubernetes application definition. Manifest applications require
-      a non-empty manifest. Helm applications require a chart, namespace, and
-      HTTPS repo_url or an absolute local chart path.
-  loop: "{{ kubernetes_applications }}"
-  loop_control:
-    label: "{{ item.name | default('unnamed') }}"
+- name: "Stop after Kubernetes validation"
+  ansible.builtin.meta: end_host
+  when: state == "validate"
 
-- name: "Checking if container runtime is supported"
-  ansible.builtin.assert:
-    that:
-      - kubernetes_container_runtime in ["containerd", "crio"]
-    fail_msg: >-
-      Unsupported Kubernetes container runtime:
-      {{ kubernetes_container_runtime }}
-
-- name: "Checking if Kubernetes state is supported"
-  ansible.builtin.assert:
-    that:
-      - state in ["present", "absent", "install", "uninstall"]
-    fail_msg: "Unsupported Kubernetes state: {{ state }}"
-
-- name: "Checking if SELinux state is supported"
-  ansible.builtin.assert:
-    that:
-      - kubernetes_selinux_state in ["enforcing", "permissive", "disabled"]
-    fail_msg: "Unsupported SELinux state: {{ kubernetes_selinux_state }}"
-
-- name: "Checking if control-plane state is supported"
-  ansible.builtin.assert:
-    that:
-      - kubernetes_control_plane_state in ["present", "absent"]
-    fail_msg: >-
-      Unsupported Kubernetes control-plane state:
-      {{ kubernetes_control_plane_state }}
-
-- name: "Checking if worker state is supported"
-  ansible.builtin.assert:
-    that:
-      - kubernetes_worker_state in ["present", "absent"]
-      - kubernetes_control_plane_inventory_hostname | length > 0
-        or kubernetes_worker_state == "absent"
-    fail_msg: >-
-      Unsupported Kubernetes worker configuration:
-      {{ kubernetes_worker_state }} /
-      {{ kubernetes_control_plane_inventory_hostname }}
-
-- name: "Checking if CNI is supported"
-  ansible.builtin.assert:
-    that:
-      - kubernetes_cni in ["flannel"]
-      - kubernetes_cni_state in ["present", "absent"]
-    fail_msg: >-
-      Unsupported Kubernetes CNI configuration:
-      {{ kubernetes_cni }} / {{ kubernetes_cni_state }}
 
 - name: "Removing Kubernetes applications"
   ansible.builtin.include_tasks: applications_absent.yml

@@ -1,0 +1,14 @@
+---
+driver:
+  name: default
+scenario:
+  test_sequence:
+    - syntax
+    - converge
+    - verify
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+verifier:
+  name: ansible

@@ -9,6 +9,10 @@ platforms:
   - name: k8s-uninstall-rocky9
     box: generic/rocky9
     provider_options:
+      uri: "qemu:///system"
+      management_network_name: "default"
+      management_network_address: "192.168.122.1/24"
+      management_network_keep: true
       graphics_type: none
       memory: 2048
       cpus: 2

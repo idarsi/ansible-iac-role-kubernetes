@@ -1,0 +1,128 @@
+---
+- name: "Verify validation scenario"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: "Exercise role SELinux target validation through the role entrypoint"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-kubernetes
+      vars:
+        state: "validate"
+        ansible_facts:
+          distribution: "Rocky"
+          distribution_major_version: "9"
+        kubernetes_selinux_file_contexts:
+          - { target: "/etc/kubernetes(/.*)?", type: "container_file_t" }
+        iac_blueprint:
+          kubernetes:
+            applications: []
+
+    - name: "Record validation mutation marker before negative tests"
+      ansible.builtin.stat:
+        path: "/tmp/ansible-iac-role-kubernetes-validation-mutated"
+      register: validation_marker_before
+
+    - name: "Assert validation mutation marker is initially absent"
+      ansible.builtin.assert:
+        that:
+          - not validation_marker_before.stat.exists
+
+    - name: "Reject invalid Helm timeout without mutation"
+      block:
+        - name: "Run invalid Helm validation"
+          ansible.builtin.include_role:
+            name: ansible-iac-role-kubernetes
+          vars:
+            state: "validate"
+            ansible_facts:
+              distribution: "Rocky"
+              distribution_major_version: "9"
+            iac_blueprint:
+              kubernetes:
+                applications:
+                  - name: "bad-chart"
+                    type: "helm"
+                    state: "present"
+                    chart: "example"
+                    namespace: "default"
+                    repo_url: "https://charts.example.test"
+                    chart_version: "1.0.0"
+                    timeout: "forever"
+      rescue:
+        - name: "Capture invalid Helm validation failure"
+          ansible.builtin.set_fact:
+            invalid_helm_failure: "{{ ansible_failed_result }}"
+        - name: "Assert invalid Helm validation failure output"
+          ansible.builtin.assert:
+            that:
+              - invalid_helm_failure.failed | default(false)
+              - invalid_helm_failure.results[0].failed | default(false)
+              - >-
+                invalid_helm_failure.results[0].msg is search("Invalid Helm
+                application 'bad-chart': release_name, namespace, chart,
+                timeout, and chart_version must be valid.")
+
+    - name: "Reject worker without a suitable control plane"
+      block:
+        - name: "Run invalid cross-host validation"
+          ansible.builtin.include_role:
+            name: ansible-iac-role-kubernetes
+          vars:
+            state: "validate"
+            ansible_facts:
+              distribution: "Rocky"
+              distribution_major_version: "9"
+            kubernetes_applications: []
+            iac_blueprint:
+              kubernetes:
+                worker_state: "present"
+                control_plane_inventory_hostname: "missing-control-plane"
+                applications: []
+      rescue:
+        - name: "Capture cross-host validation failure"
+          ansible.builtin.set_fact:
+            invalid_worker_failure: "{{ ansible_failed_result }}"
+        - name: "Assert cross-host validation failure output"
+          ansible.builtin.assert:
+            that:
+              - invalid_worker_failure.failed | default(false)
+              - >-
+                invalid_worker_failure.msg is search("A present
+                worker requires kubernetes_control_plane_inventory_hostname to
+                name an inventory host configured with control_plane_state:
+                present.")
+
+    - name: "Confirm invalid validation did not create a marker"
+      ansible.builtin.stat:
+        path: "/tmp/ansible-iac-role-kubernetes-validation-mutated"
+      register: validation_marker
+
+    - name: "Assert validation made no host mutation"
+      ansible.builtin.assert:
+        that:
+          - not validation_marker.stat.exists
+
+    - name: "Reject root Helm cleanup path"
+      block:
+        - name: "Run validation with an unsafe cleanup path"
+          ansible.builtin.include_role:
+            name: ansible-iac-role-kubernetes
+          vars:
+            state: "validate"
+            kubernetes_helm_archive_dir: "/"
+            ansible_facts:
+              distribution: "Rocky"
+              distribution_major_version: "9"
+            iac_blueprint:
+              kubernetes:
+                worker_state: "absent"
+      rescue:
+        - name: "Capture unsafe cleanup path failure"
+          ansible.builtin.set_fact:
+            unsafe_cleanup_failure: "{{ ansible_failed_result }}"
+        - name: "Assert unsafe cleanup path was rejected"
+          ansible.builtin.assert:
+            that:
+              - unsafe_cleanup_failure.failed | default(false)
+              - unsafe_cleanup_failure | to_json is search("Unsafe Kubernetes cleanup path")

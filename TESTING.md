@@ -1,105 +1,74 @@
 # Testing
 
-The test scenarios use Molecule with the Vagrant driver and the
-libvirt provider. Vagrant creates a real Rocky Linux virtual machine on KVM;
-the scenario does not run inside a Podman container.
+Molecule uses Vagrant/libvirt and disposable Rocky Linux virtual machines. The
+local shared Idarsi environment is used for Ansible tooling; Podman is not
+appropriate for these KVM scenarios.
 
-## Scenario matrix
+All KVM scenarios connect to the externally managed `default` network through
+`qemu:///system`. Each platform's `provider_options` (the Molecule Vagrant
+platform-level location) sets `management_network_name: "default"`,
+`management_network_address: "192.168.122.1/24"`, and
+`management_network_keep: true`. In vagrant-libvirt 0.11.2,
+`management_network_keep` maps the management interface to
+`always_destroy: false`; an existing network is therefore neither recorded as
+created nor undefined during destroy. The network must already exist and be
+active on the KVM runner. A dedicated stable network may be substituted
+consistently in every KVM `molecule.yml` if the runner does not use `default`.
 
-Scenario       | Platform             | Coverage
----------------|----------------------|-----------------------------
-`kvm-containerd` | Rocky Linux 9, KVM | VM creation, host preparation, containerd, idempotence, and verification
-`kvm-crio`     | Rocky Linux 9, KVM   | VM creation, host preparation, CRI-O, idempotence, and verification
-`kvm-containerd-cluster` | Rocky Linux 9, KVM | Two-node control plane and worker cluster, CNI, idempotence, and verification
-`kvm-crio-cluster` | Rocky Linux 9, KVM | Two-node control plane and worker cluster with CRI-O, CNI, idempotence, and verification
-`kvm-containerd-uninstall` | Rocky Linux 9, KVM | Full Kubernetes uninstall and absence verification
-`kvm-containerd-component-absent` | Rocky Linux 9, KVM | Declarative worker, CNI, and control-plane absence workflow
-`kvm-crio-component-absent` | Rocky Linux 9, KVM | Declarative worker, CNI, and control-plane absence workflow with CRI-O
-`kvm-containerd-application` | Rocky Linux 9, KVM | Manifest and Helm application present, idempotence, and absent workflow
+## Automated matrix
 
-The `kvm-containerd` scenario also bootstraps a single Kubernetes control plane
-with `kubeadm init`, installs the pinned Flannel CNI manifest, and verifies that
-the node becomes `Ready`.
+| Platform/image | Ansible or application versions | Molecule scenarios | Main coverage |
+|---|---|---|---|
+| Rocky Linux 9 / KVM | Kubernetes v1.34; versions in `requirements-ci.txt` | `validation`; `kvm-containerd` baseline on scheduled/manual KVM runner | Validation-only safety; runtime installation, bootstrap, idempotence and verification |
+| Rocky Linux 10 / KVM | Kubernetes v1.34 | None currently | Supported, not automatically tested |
+| RHEL 9/10 / KVM | Kubernetes v1.34 | None currently | Supported, not automatically tested |
 
-## Prerequisites
+## Scenario coverage
 
-- KVM and libvirt are working with `virsh -c qemu:///system`.
-- Vagrant is installed.
-- The `vagrant-libvirt` Vagrant plugin is installed.
-- The current user can access the system libvirt connection.
+- `validation`: valid blueprint validation without host mutation; invalid schema,
+  duplicate, and reference fixtures should be added as the scenario expands.
+- `kvm-containerd`, `kvm-crio`: baseline runtime installation, bootstrap and
+  idempotence.
+- `kvm-containerd-cluster`, `kvm-crio-cluster`: worker references, CNI and
+  multi-node convergence.
+- `kvm-containerd-uninstall`: destructive cleanup in a disposable VM.
+- `kvm-containerd-component-absent`, `kvm-crio-component-absent`: component
+  absence states.
+- `kvm-containerd-application`: manifest and Helm lifecycle and idempotence.
+- `kvm-containerd-uninstall`: verifies role-owned etcd cleanup and removal of
+  the external ownership marker while preserving unmarked data and
+  ownership-safe SELinux cleanup on disposable hosts.
 
-Install the CI dependencies in a dedicated Python virtual environment:
+Only validation runs on ordinary pull requests. The practical `kvm-containerd`
+baseline runs from the scheduled or manually dispatched CI workflow on a
+self-hosted runner labelled `kvm`; the remaining KVM scenarios are manual.
+KVM scenarios require hardware virtualization, libvirt, Vagrant, and the
+`vagrant-libvirt` plugin, plus an active externally managed libvirt `default`
+network on `qemu:///system`, so they cannot run on the ordinary GitHub-hosted
+runner. Rocky Linux 10 and RHEL 9/10 remain supported but are not automatically
+tested.
+
+## Commands
 
 ```bash
-python -m pip install -r requirements-ci.txt
-```
-
-With the current Molecule and Ansible versions, expose the Vagrant plugin's
-custom module explicitly when running the scenario:
-
-```bash
-export ANSIBLE_LIBRARY="$(python -c 'import molecule_plugins.vagrant, pathlib; print(pathlib.Path(molecule_plugins.vagrant.__file__).parent / "modules")')"
-```
-
-The command above intentionally uses the active Python environment to locate
-the installed plugin module.
-
-## Running the scenario
-
-Run from the role directory:
-
-```bash
+export PATH="/home/arsi/.local/share/venvs/idarsi-ansible-testing/bin:$PATH"
+ANSIBLE_ROLES_PATH="$(dirname "$PWD")" ansible-playbook --syntax-check -i 'localhost,' molecule/validation/converge.yml
+ANSIBLE_ROLES_PATH="$(dirname "$PWD")" ansible-lint --profile production
+molecule test -s validation
 molecule test -s kvm-containerd
 ```
 
-Run the CRI-O runtime scenario:
+Before running a KVM scenario, verify the runner-side prerequisite without
+letting Molecule manage it:
 
 ```bash
-molecule test -s kvm-crio
+virsh -c qemu:///system net-info default
 ```
 
-Run the two-node worker join scenario:
+The command must report an active network. Vagrant may destroy the test domains;
+the provider settings above ensure it does not manage the shared network.
 
-```bash
-molecule test -s kvm-containerd-cluster
-```
-
-Run the two-node worker join scenario with CRI-O:
-
-```bash
-molecule test -s kvm-crio-cluster
-```
-
-Test the complete Kubernetes uninstall path:
-
-```bash
-molecule test -s kvm-containerd-uninstall
-```
-
-Test the declarative component-level absence workflow with containerd:
-
-```bash
-molecule test -s kvm-containerd-component-absent
-```
-
-Test the component-level absence workflow with CRI-O:
-
-```bash
-molecule test -s kvm-crio-component-absent
-```
-
-Test the declarative application lifecycle:
-
-```bash
-molecule test -s kvm-containerd-application
-```
-
-For faster iteration:
-
-```bash
-molecule converge -s kvm-containerd
-molecule verify -s kvm-containerd
-```
-
-The scenario creates a VM in the system libvirt storage pool and removes it
-when the full `molecule test` workflow completes.
+Run `molecule converge` and `molecule verify` for faster iteration. The
+pull-request CI job intentionally stops at syntax, production lint, and
+validation; use the scheduled/manual workflow or a prepared KVM host for the
+functional baseline and other KVM scenarios.
