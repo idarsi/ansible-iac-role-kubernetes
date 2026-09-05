@@ -22,6 +22,9 @@
         - /etc/sysctl.d/99-kubernetes.conf
         - /etc/containerd/config.toml
         - /etc/yum.repos.d/kubernetes.repo
+         - /var/lib/etcd
+         - /var/lib/.ansible-iac-role-kubernetes-etcd-owned
+        - /etc/selinux/.ansible-iac-role-kubernetes-fcontexts
       register: removed_kubernetes_files
 
     - name: "Checking Kubernetes uninstall facts"

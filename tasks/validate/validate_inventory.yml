@@ -1,0 +1,132 @@
+---
+- name: "Validate Kubernetes blueprint root"
+  ansible.builtin.assert:
+    that:
+      - iac_blueprint is mapping
+      - iac_blueprint.kubernetes is defined
+      - iac_blueprint.kubernetes is mapping
+    fail_msg: "iac_blueprint.kubernetes must be a mapping; no host changes were made."
+
+- name: "Validate Kubernetes scalar blueprint fields"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_container_runtime in ["containerd", "crio"]
+      - kubernetes_selinux_state in ["enforcing", "permissive", "disabled"]
+      - kubernetes_control_plane_state in ["present", "absent"]
+      - kubernetes_worker_state in ["present", "absent"]
+      - kubernetes_cni in ["flannel"]
+      - kubernetes_cni_state in ["present", "absent"]
+      - kubernetes_applications is sequence and kubernetes_applications is not string
+      - kubernetes_control_plane_api_port is number and kubernetes_control_plane_api_port | int in range(1, 65536)
+      - kubernetes_etcd_ownership_marker is string
+      - kubernetes_etcd_ownership_marker is match("^/var/lib/[^/]+$")
+      - kubernetes_etcd_ownership_marker != "/var/lib/etcd"
+    fail_msg: "Invalid Kubernetes blueprint field; see the supported values in README.md."
+
+- name: "Validate Kubernetes SELinux file context targets"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_selinux_context_record.target is string
+      - kubernetes_selinux_context_record.target | trim | length > 1
+      - kubernetes_selinux_context_record.target is match("^/")
+      - kubernetes_selinux_context_record.target is not search("(^|/)\\.\\.?(/|$)")
+      - kubernetes_selinux_context_record.target is not search("\\s")
+      - >-
+        kubernetes_selinux_context_record.target == kubernetes_selinux_restorecon_path or
+        kubernetes_selinux_context_record.target is match("^/.+\\(/\\.\\*\\)\\?$")
+      - kubernetes_selinux_restorecon_path is not search("[(){}*+?|]")
+    fail_msg: >-
+      Invalid Kubernetes SELinux file context target
+      '{{ kubernetes_selinux_context_record.target | default('') }}'. Targets
+      must be absolute paths, optionally followed by the SELinux recursive
+      suffix '(/.*)?'.
+  loop: "{{ kubernetes_selinux_file_contexts }}"
+  loop_control:
+    loop_var: kubernetes_selinux_context_record
+    label: "{{ kubernetes_selinux_context_record.target }}"
+  vars:
+    kubernetes_selinux_restorecon_path: >-
+      {{ kubernetes_selinux_context_record.target | trim
+         | split('(/.*)?', 1) | first }}
+
+- name: "Validate Kubernetes application records"
+  ansible.builtin.include_tasks: validate_applications.yml
+
+- name: "Validate Helm supply-chain inputs before host mutation"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_helm_download_baseurl is match("^https://")
+      - kubernetes_helm_checksums[kubernetes_helm_architecture] is defined
+      - kubernetes_helm_checksums[kubernetes_helm_architecture] is match("^[0-9a-fA-F]{64}$")
+    fail_msg: >-
+      Helm applications require an HTTPS download source and a pinned
+      architecture-specific SHA256 checksum.
+  vars:
+    kubernetes_helm_architecture: >-
+      {{ {
+        "x86_64": "amd64",
+        "aarch64": "arm64",
+        "armv7l": "arm"
+      }.get(ansible_facts["architecture"], "") }}
+  when:
+    - kubernetes_helm_install | bool
+    - kubernetes_applications | selectattr("type", "equalto", "helm") | list | length > 0
+
+- name: "Validate CRI-O repository security and mirror inputs"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_crio_repository_baseurl is match("^https://")
+      - kubernetes_crio_repository_gpgkey is match("^https://")
+      - >-
+        (kubernetes_crio_repository_mirror_baseurl | default("")) | length == 0 or
+        (kubernetes_crio_repository_mirror_baseurl is match("^https://") and
+         (kubernetes_crio_repository_mirror_gpgkey | default("")) is match("^https://"))
+      - >-
+        (kubernetes_crio_repository_mirror_gpgkey | default("")) | length == 0 or
+        (kubernetes_crio_repository_mirror_baseurl | default("")) | length > 0
+    fail_msg: "CRI-O repository and optional mirror must use HTTPS and provide an HTTPS GPG key."
+
+- name: "Validate Kubernetes worker control-plane reference"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_worker_state == "absent" or kubernetes_control_plane_inventory_hostname | length > 0
+      - kubernetes_worker_state == "absent" or kubernetes_control_plane_inventory_hostname in hostvars
+      - >-
+        kubernetes_worker_state == "absent" or
+        (hostvars[kubernetes_control_plane_inventory_hostname].iac_blueprint.kubernetes.control_plane_state
+        | default(hostvars[kubernetes_control_plane_inventory_hostname].kubernetes_control_plane_state
+        | default("absent"))) == "present"
+    fail_msg: >-
+      A present worker requires kubernetes_control_plane_inventory_hostname to
+      name an inventory host configured with control_plane_state: present.
+
+- name: "Validate user-overridable Kubernetes cleanup paths"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_cleanup_path.path is string
+      - kubernetes_cleanup_path.path | trim | length > 0
+      - kubernetes_cleanup_path.path is match("^/")
+      - kubernetes_cleanup_path.path is not search("(^|/)\.\.?(/|$)")
+      - >-
+        kubernetes_cleanup_path.path.rstrip("/") not in
+        ["", "/", "/etc", "/etc/kubernetes", "/etc/cni", "/etc/containerd",
+         "/etc/crio", "/var", "/var/lib", "/var/lib/kubelet", "/var/lib/cni",
+         "/var/cache", "/usr", "/usr/local", "/root", "/home", "/opt", "/run",
+         "/tmp"]
+      - >-
+        kubernetes_cleanup_path.kind != "file" or
+        kubernetes_cleanup_path.path | basename in kubernetes_cleanup_path.allowed_basenames
+    fail_msg: >-
+      Unsafe Kubernetes cleanup path '{{ kubernetes_cleanup_path.path | default('') }}'.
+      Cleanup paths must be non-empty absolute role-owned files, or the marked
+      Helm cache directory; broad parent paths and '/' are rejected.
+  loop:
+    - { path: "{{ kubernetes_control_plane_admin_kubeconfig }}", kind: "file", allowed_basenames: ["admin.conf"] }
+    - { path: "{{ kubernetes_control_plane_kubeconfig }}", kind: "file", allowed_basenames: ["config"] }
+    - { path: "{{ kubernetes_containerd_config_path }}", kind: "file", allowed_basenames: ["config.toml"] }
+    - { path: "{{ kubernetes_crio_config_path }}", kind: "file", allowed_basenames: ["02-kubernetes.conf"] }
+    - { path: "{{ kubernetes_helm_binary_path }}", kind: "file", allowed_basenames: ["helm"] }
+    - { path: "{{ kubernetes_helm_archive_dir }}", kind: "directory", allowed_basenames: [] }
+  loop_control:
+    loop_var: kubernetes_cleanup_path
+    label: "{{ kubernetes_cleanup_path.path }}"

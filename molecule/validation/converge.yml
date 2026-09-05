@@ -1,0 +1,16 @@
+---
+- name: "Validate Kubernetes blueprint"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    state: "validate"
+    ansible_facts:
+      distribution: "Rocky"
+      distribution_major_version: "9"
+    iac_blueprint:
+      kubernetes:
+        container_runtime: "containerd"
+        applications: []
+  roles:
+    - role: ansible-iac-role-kubernetes

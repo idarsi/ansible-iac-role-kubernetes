@@ -9,7 +9,7 @@
 
 - name: "Restoring SELinux context for etcd data before bootstrap"
   ansible.builtin.command:
-    cmd: "restorecon -vRF /var/lib/etcd"
+    cmd: "restorecon -vR /var/lib/etcd"
   register: kubernetes_etcd_restorecon
   changed_when: "'Relabeled' in kubernetes_etcd_restorecon.stdout"
   failed_when: kubernetes_etcd_restorecon.rc != 0

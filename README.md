@@ -35,6 +35,7 @@ Supported operating systems:
 Operating system                | Supported versions | Lifecycle reference
 --------------------------------|--------------------|--------------------
 Rocky Linux                     | 9, 10              | [Rocky Linux release guide](https://wiki.rockylinux.org/rocky/version/)
+Red Hat Enterprise Linux        | 9, 10              | [Red Hat documentation](https://access.redhat.com/documentation/)
 
 The automated KVM test matrix currently uses Rocky Linux 9. Rocky Linux 10 is
 included in the role's supported-operating-system assertions and should be
@@ -44,7 +45,11 @@ Supported container runtimes:
 
 - containerd, the default runtime, installed from Docker's official RPM
   repository.
-- CRI-O, installed from the CRI-O stable RPM repository.
+- CRI-O, installed from the HTTPS CRI-O stable RPM repository for the selected
+  Kubernetes channel (default `v1.34`). The default source is the upstream
+  OpenSUSE repository; an HTTPS mirror and its HTTPS GPG key can be supplied
+  together with `kubernetes_crio_repository_mirror_baseurl` and
+  `kubernetes_crio_repository_mirror_gpgkey`.
 
 Kubernetes packages are installed from the official
 [Kubernetes package repository](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/).
@@ -71,6 +76,9 @@ The component-level `absent` states remove only the selected Kubernetes
 component and preserve the container runtime and Kubernetes packages. Use
 `state: uninstall` or `state: absent` for the complete host removal workflow.
 
+The public root `iac_blueprint.kubernetes` is required. Legacy top-level
+variables remain accepted as compatibility overrides when that root is also
+provided; new inventories should use the blueprint fields.
 Applications can be declared under `iac_blueprint.kubernetes.applications`.
 The role accepts Kubernetes YAML manifests and Helm charts. Both are applied
 or removed on the control plane. Keep application definitions explicit, pin
@@ -90,8 +98,10 @@ Install a single-node Kubernetes control plane with containerd and Flannel:
     - role: ansible-iac-role-kubernetes
       state: install
   vars:
-    kubernetes_control_plane_state: present
-    kubernetes_cni_state: present
+    iac_blueprint:
+      kubernetes:
+        control_plane_state: "present"
+        cni_state: "present"
 ```
 
 The default security posture is SELinux `enforcing`, swap disabled, systemd
@@ -108,9 +118,11 @@ To use CRI-O instead of containerd:
     - role: ansible-iac-role-kubernetes
       state: install
   vars:
-    kubernetes_container_runtime: crio
-    kubernetes_control_plane_state: present
-    kubernetes_cni_state: present
+    iac_blueprint:
+      kubernetes:
+        container_runtime: "crio"
+        control_plane_state: "present"
+        cni_state: "present"
 ```
 
 To join a worker to a control plane, run the role for the worker with the
@@ -124,14 +136,16 @@ control-plane inventory hostname:
     - role: ansible-iac-role-kubernetes
       state: present
   vars:
-    kubernetes_worker_state: present
-    kubernetes_control_plane_inventory_hostname: kubernetes-control-1
+    iac_blueprint:
+      kubernetes:
+        worker_state: "present"
+        control_plane_inventory_hostname: "kubernetes-control-1"
 ```
 
 Requirements
 ------------
 
-- Rocky Linux 9 or 10.
+- Rocky Linux 9 or 10, or RHEL 9 or 10.
 - Ansible 2.15 or higher.
 - Root privileges or passwordless privilege escalation on target hosts.
 - Network access to the Kubernetes, container runtime, and Flannel package or
@@ -165,8 +179,11 @@ Complete installation example
   roles:
     - role: ansible-iac-role-kubernetes
       state: install
-      kubernetes_control_plane_state: present
-      kubernetes_cni_state: present
+  vars:
+    iac_blueprint:
+      kubernetes:
+        control_plane_state: "present"
+        cni_state: "present"
 ```
 
 The `install` state prepares the host, installs the selected runtime and
@@ -186,16 +203,22 @@ The complete workflow can also be expressed as separate desired states:
   roles:
     - role: ansible-iac-role-kubernetes
       state: present
-      kubernetes_control_plane_state: present
-      kubernetes_cni_state: present
+  vars:
+    iac_blueprint:
+      kubernetes:
+        control_plane_state: "present"
+        cni_state: "present"
 
 - hosts: kubernetes_workers
   become: true
   roles:
     - role: ansible-iac-role-kubernetes
       state: present
-      kubernetes_worker_state: present
-      kubernetes_control_plane_inventory_hostname: kubernetes-control-1
+  vars:
+    iac_blueprint:
+      kubernetes:
+        worker_state: "present"
+        control_plane_inventory_hostname: "kubernetes-control-1"
 ```
 
 Application blueprint
@@ -256,9 +279,11 @@ iac_blueprint:
 ```
 
 For a local chart, use an absolute `chart` path on the target control-plane
-host and omit `repo_url` and `chart_version`. Helm is downloaded from the
-official [Helm releases](https://github.com/helm/helm/releases) endpoint with
-a SHA256 checksum when a Helm application is present.
+host and omit `repo_url` and `chart_version`. Helm is downloaded only over
+HTTPS and is verified with the pinned architecture-specific
+`kubernetes_helm_checksums` values. Override those role-controlled checksums
+only with a separately verified release checksum; the role never downloads an
+unauthenticated checksum from the mutable download endpoint.
 
 Complete removal
 ----------------
@@ -268,6 +293,22 @@ runtime, role-managed repositories and configuration, restore swap settings,
 remove the control-plane and worker configuration, and clean role-managed
 firewalld and SELinux entries. Use them only when the host should be removed
 from the Kubernetes deployment.
+
+The etcd data directory is removed during `absent`/`uninstall` only when its
+root-owned external marker (`kubernetes_etcd_ownership_marker`, default
+`/var/lib/.ansible-iac-role-kubernetes-etcd-owned`) proves that this role
+created the directory. The marker is written only when `/var/lib/etcd` did not
+already exist. An unmarked pre-existing `/var/lib/etcd` directory is
+intentionally left untouched. Keeping the marker outside the data directory
+also leaves the new etcd directory empty for kubeadm. SELinux fcontext
+cleanup follows the same ownership rule: installation records only newly added
+target/type pairs in a root-owned mode `0600` marker, and removal deletes only
+those recorded matching rules before deleting the marker. If a recorded rule
+is stale or has changed, removal fails safely and retains the marker.
+Pre-existing contexts are never removed.
+
+The `validate` state performs blueprint and cross-host validation only. It does
+not install packages, alter files, restart services, or change cluster data.
 
 ## Testing
 

@@ -2,6 +2,7 @@
 
 iac_supported_os:
   - { name: "Rocky", versions: ["9", "10"] }
+  - { name: "RedHat", versions: ["9", "10"] }
 
 state: present
 kubernetes_control_plane_state: absent
@@ -13,6 +14,8 @@ kubernetes_manage_selinux: true
 kubernetes_selinux_state: enforcing
 kubernetes_selinux_package: container-selinux
 kubernetes_selinux_tools_package: policycoreutils-python-utils
+kubernetes_selinux_context_marker: /etc/selinux/.ansible-iac-role-kubernetes-fcontexts
+kubernetes_etcd_ownership_marker: /var/lib/.ansible-iac-role-kubernetes-etcd-owned
 kubernetes_selinux_file_contexts:
   - { target: "/etc/kubernetes(/.*)?", type: "container_file_t" }
   - { target: "/var/lib/etcd(/.*)?", type: "container_file_t" }
@@ -29,6 +32,11 @@ kubernetes_helm_version: v4.2.0
 kubernetes_helm_binary_path: /usr/local/bin/helm
 kubernetes_helm_download_baseurl: https://get.helm.sh
 kubernetes_helm_archive_dir: /var/cache/ansible-iac-role-kubernetes
+kubernetes_helm_checksums:
+  amd64: "97dbeb971be4ac4b27e3839976d9564c0fb35c6f3b1da89dd1e292d236af4096"
+  arm64: "1f8de130dfbd04de64978e7b852a7a547be1404956a366608276d2520b678670"
+  arm: "ae624870b2d50e655b6462daff117eb9d28c4bad45234ef24c1275113540fcb0"
+kubernetes_helm_release_metadata_dir: "{{ kubernetes_helm_archive_dir }}/metadata"
 kubernetes_control_plane_pod_cidr: 10.244.0.0/16
 kubernetes_control_plane_service_cidr: 10.96.0.0/12
 kubernetes_control_plane_admin_kubeconfig: /etc/kubernetes/admin.conf
@@ -74,5 +82,9 @@ kubernetes_crio_repository_name: cri-o
 kubernetes_crio_repository_description: CRI-O stable
 kubernetes_crio_repository_baseurl: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ kubernetes_crio_version }}/rpm/"
 kubernetes_crio_repository_gpgkey: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ kubernetes_crio_version }}/rpm/repodata/repomd.xml.key"
+# Set both mirror variables to use an HTTPS mirror with its corresponding key.
+# The empty defaults intentionally use the upstream repository above.
+kubernetes_crio_repository_mirror_baseurl: ""
+kubernetes_crio_repository_mirror_gpgkey: ""
 kubernetes_crio_config_path: /etc/crio/crio.conf.d/02-kubernetes.conf
 kubernetes_crio_service_name: crio

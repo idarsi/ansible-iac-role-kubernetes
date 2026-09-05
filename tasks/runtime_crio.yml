@@ -4,10 +4,20 @@
   ansible.builtin.yum_repository:
     name: "{{ kubernetes_crio_repository_name }}"
     description: "{{ kubernetes_crio_repository_description }}"
-    baseurl: "{{ kubernetes_crio_repository_baseurl }}"
+    baseurl: "{{ kubernetes_crio_repository_url }}"
     enabled: true
     gpgcheck: true
-    gpgkey: "{{ kubernetes_crio_repository_gpgkey }}"
+    gpgkey: "{{ kubernetes_crio_repository_key }}"
+    sslverify: true
+  vars:
+    kubernetes_crio_repository_url: >-
+      {{ kubernetes_crio_repository_mirror_baseurl
+         if kubernetes_crio_repository_mirror_baseurl | default('') | length > 0
+         else kubernetes_crio_repository_baseurl }}
+    kubernetes_crio_repository_key: >-
+      {{ kubernetes_crio_repository_mirror_gpgkey
+         if kubernetes_crio_repository_mirror_gpgkey | default('') | length > 0
+         else kubernetes_crio_repository_gpgkey }}
 
 - name: "Ensuring CRI-O SELinux support is installed"
   ansible.builtin.package:

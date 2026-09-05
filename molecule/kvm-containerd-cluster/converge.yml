@@ -6,11 +6,13 @@
   gather_facts: true
   vars:
     state: present
-    kubernetes_control_plane_inventory_hostname: k8s-control-plane-rocky9
-    kubernetes_control_plane_state: >-
-      {{ 'present' if inventory_hostname == 'k8s-control-plane-rocky9' else 'absent' }}
-    kubernetes_worker_state: >-
-      {{ 'present' if inventory_hostname == 'k8s-worker-rocky9' else 'absent' }}
-    kubernetes_cni_state: present
+    iac_blueprint:
+      kubernetes:
+        control_plane_inventory_hostname: "k8s-control-plane-rocky9"
+        control_plane_state: >-
+          {{ 'present' if inventory_hostname == 'k8s-control-plane-rocky9' else 'absent' }}
+        worker_state: >-
+          {{ 'present' if inventory_hostname == 'k8s-worker-rocky9' else 'absent' }}
+        cni_state: "present"
   roles:
     - role: ansible-iac-role-kubernetes

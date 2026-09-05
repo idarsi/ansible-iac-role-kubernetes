@@ -1,11 +1,9 @@
 # Contributing
 
-Use a dedicated virtual environment for Ansible and Molecule commands:
+Use the shared Idarsi Python 3.12 environment for Ansible and Molecule commands:
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements-ci.txt
+export PATH="/home/arsi/.local/share/venvs/idarsi-ansible-testing/bin:$PATH"
 ```
 
 Run the KVM smoke scenario from the role directory:

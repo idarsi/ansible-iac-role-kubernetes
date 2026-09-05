@@ -4,11 +4,39 @@
     path: "{{ kubernetes_control_plane_admin_kubeconfig }}"
   register: kubernetes_control_plane_admin_kubeconfig_stat
 
+- name: "Checking Kubernetes etcd data directory"
+  ansible.builtin.stat:
+    path: "/var/lib/etcd"
+  register: kubernetes_etcd_directory
+
+- name: "Checking Kubernetes etcd ownership marker"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_etcd_ownership_marker }}"
+  register: kubernetes_etcd_marker
+
+- name: "Reading Kubernetes etcd ownership marker"
+  ansible.builtin.slurp:
+    src: "{{ kubernetes_etcd_ownership_marker }}"
+  register: kubernetes_etcd_marker_content
+  when:
+    - kubernetes_etcd_marker.stat.exists
+    - kubernetes_etcd_marker.stat.isreg
+
+- name: "Refusing to remove unmarked Kubernetes etcd data"
+  ansible.builtin.assert:
+    that:
+      - not kubernetes_etcd_directory.stat.exists or
+        (kubernetes_etcd_marker.stat.exists and
+         kubernetes_etcd_marker.stat.isreg and
+         kubernetes_etcd_marker_content.content | b64decode == "ansible-iac-role-kubernetes\n")
+    fail_msg: >-
+      Refusing to remove /var/lib/etcd because it is not marked as owned by
+      ansible-iac-role-kubernetes.
+
 - name: "Resetting Kubernetes control plane"
   ansible.builtin.command: kubeadm reset --force
   register: kubernetes_control_plane_reset
   changed_when: kubernetes_control_plane_reset.rc == 0
-  failed_when: false
   when: kubernetes_control_plane_admin_kubeconfig_stat.stat.exists
 
 - name: "Removing Kubernetes control-plane files"
@@ -16,7 +44,26 @@
     path: "{{ item }}"
     state: absent
   loop:
-    - /etc/kubernetes
-    - /var/lib/etcd
+    - /etc/kubernetes/admin.conf
+    - /etc/kubernetes/kubelet.conf
     - "{{ kubernetes_control_plane_kubeconfig }}"
   when: kubernetes_control_plane_admin_kubeconfig_stat.stat.exists
+
+- name: "Removing role-owned Kubernetes etcd data"
+  ansible.builtin.file:
+    path: "/var/lib/etcd"
+    state: absent
+  when:
+    - kubernetes_etcd_directory.stat.exists
+    - kubernetes_etcd_marker.stat.exists
+    - kubernetes_etcd_marker.stat.isreg
+    - kubernetes_etcd_marker_content.content | b64decode == "ansible-iac-role-kubernetes\n"
+
+- name: "Removing Kubernetes etcd ownership marker"
+  ansible.builtin.file:
+    path: "{{ kubernetes_etcd_ownership_marker }}"
+    state: absent
+  when:
+    - kubernetes_etcd_marker.stat.exists
+    - kubernetes_etcd_marker.stat.isreg
+    - kubernetes_etcd_marker_content.content | b64decode == "ansible-iac-role-kubernetes\n"

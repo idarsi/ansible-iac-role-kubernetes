@@ -23,16 +23,105 @@
          | selectattr('item.register_name', 'equalto', 'kubelet_config')
          | map(attribute='stat.exists') | first | default(false) }}
 
-- name: "Removing Kubernetes SELinux file contexts"
+- name: "Checking Kubernetes SELinux context ownership marker"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_selinux_context_marker }}"
+  register: kubernetes_selinux_context_marker_stat
+  when: kubernetes_manage_selinux | bool
+
+- name: "Reading Kubernetes SELinux context ownership marker"
+  ansible.builtin.slurp:
+    src: "{{ kubernetes_selinux_context_marker }}"
+  register: kubernetes_selinux_context_marker_content
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_selinux_context_marker_stat.stat.exists
+    - kubernetes_selinux_context_marker_stat.stat.isreg
+
+- name: "Validating Kubernetes SELinux context ownership marker"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_selinux_context_marker_targets is sequence
+      - kubernetes_selinux_context_marker_targets is not string
+      - kubernetes_selinux_context_marker_targets | selectattr('target', 'defined') | list | length == kubernetes_selinux_context_marker_targets | length
+      - kubernetes_selinux_context_marker_targets | selectattr('type', 'defined') | list | length == kubernetes_selinux_context_marker_targets | length
+    fail_msg: "The Kubernetes SELinux ownership marker is invalid; refusing to remove contexts."
+  vars:
+    kubernetes_selinux_context_marker_targets: >-
+      {{ kubernetes_selinux_context_marker_content.content | b64decode | from_json }}
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_selinux_context_marker_stat.stat.exists
+    - kubernetes_selinux_context_marker_stat.stat.isreg
+
+- name: "Normalizing Kubernetes SELinux context ownership marker"
+  ansible.builtin.set_fact:
+    kubernetes_selinux_context_marker_targets: >-
+      {{ kubernetes_selinux_context_marker_content.content | b64decode | from_json }}
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_selinux_context_marker_stat.stat.exists
+    - kubernetes_selinux_context_marker_stat.stat.isreg
+
+- name: "Reading current custom SELinux file contexts before removal"
   ansible.builtin.command:
-    cmd: semanage fcontext --delete {{ item.target }}
-  loop: "{{ kubernetes_selinux_file_contexts }}"
+    cmd: semanage fcontext -l -C
+  register: kubernetes_existing_selinux_contexts
+  changed_when: false
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_selinux_context_marker_stat.stat.exists
+    - kubernetes_selinux_context_marker_stat.stat.isreg
+
+- name: "Refusing to lose stale SELinux ownership records"
+  ansible.builtin.assert:
+    that:
+      - >-
+        kubernetes_existing_selinux_contexts.stdout_lines
+        | select('search', kubernetes_selinux_context_record.target | regex_escape)
+        | select('search', kubernetes_selinux_context_record.type)
+        | list | length > 0
+    fail_msg: >-
+      SELinux rule {{ kubernetes_selinux_context_record.target }} /
+      {{ kubernetes_selinux_context_record.type }} is recorded as role-owned
+      but is stale or differs; refusing to remove it or discard ownership.
+  loop: "{{ kubernetes_selinux_context_marker_targets | default([]) }}"
   loop_control:
-    label: "{{ item.target }}"
+    loop_var: kubernetes_selinux_context_record
+    label: "{{ kubernetes_selinux_context_record.target }}"
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_selinux_context_marker_stat.stat.exists
+    - kubernetes_selinux_context_marker_stat.stat.isreg
+
+- name: "Removing role-owned Kubernetes SELinux file contexts"
+  ansible.builtin.command:
+    argv:
+      - semanage
+      - fcontext
+      - --delete
+      - "{{ kubernetes_selinux_context_record.target }}"
+  loop: >-
+    {{ kubernetes_selinux_context_marker_targets | default([]) }}
+  loop_control:
+    loop_var: kubernetes_selinux_context_record
+    label: "{{ kubernetes_selinux_context_record.target }}"
   register: kubernetes_selinux_context_delete
   changed_when: kubernetes_selinux_context_delete.rc == 0
-  failed_when: false
-  when: kubernetes_manage_selinux | bool
+  failed_when: kubernetes_selinux_context_delete.rc != 0
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_selinux_context_marker_stat.stat.exists
+    - kubernetes_selinux_context_marker_stat.stat.isreg
+
+- name: "Removing Kubernetes SELinux context ownership marker"
+  ansible.builtin.file:
+    path: "{{ kubernetes_selinux_context_marker }}"
+    state: absent
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_selinux_context_marker_stat.stat.exists
+    - kubernetes_selinux_context_marker_stat.stat.isreg
 
 - name: "Removing Flannel from the Kubernetes control plane"
   ansible.builtin.command: >-
@@ -40,8 +129,9 @@
     delete -f {{ kubernetes_flannel_manifest_url }}
     --ignore-not-found=true --wait=false
   register: kubernetes_flannel_delete
-  changed_when: kubernetes_flannel_delete.rc == 0
-  failed_when: false
+  changed_when: >-
+    "deleted" in kubernetes_flannel_delete.stdout or
+    "deleted" in kubernetes_flannel_delete.stderr
   when:
     - kubernetes_control_plane_state == "present"
     - kubernetes_cni == "flannel"
@@ -51,10 +141,57 @@
   ansible.builtin.command: kubeadm reset --force
   register: kubernetes_reset
   changed_when: kubernetes_reset.rc == 0
-  failed_when: false
   when: >-
     kubernetes_admin_kubeconfig_exists | bool or
     kubernetes_kubelet_config_exists | bool
+
+- name: "Documenting safe etcd cleanup without a required reset"
+  ansible.builtin.debug:
+    msg: >-
+      No kubeadm state was detected; etcd cleanup is safe only for the
+      role-owned directory marker and does not require a reset.
+  when: >-
+    not (kubernetes_admin_kubeconfig_exists | bool) and
+    not (kubernetes_kubelet_config_exists | bool)
+
+- name: "Checking Kubernetes etcd data directory ownership marker"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_etcd_ownership_marker }}"
+  register: kubernetes_etcd_ownership_marker_stat
+
+- name: "Reading Kubernetes etcd data directory ownership marker"
+  ansible.builtin.slurp:
+    src: "{{ kubernetes_etcd_ownership_marker }}"
+  register: kubernetes_etcd_ownership_marker_content
+  when:
+    - kubernetes_etcd_ownership_marker_stat.stat.exists
+    - kubernetes_etcd_ownership_marker_stat.stat.isreg
+
+- name: "Removing role-owned Kubernetes etcd data after successful reset"
+  ansible.builtin.file:
+    path: /var/lib/etcd
+    state: absent
+  when:
+    - kubernetes_etcd_ownership_marker_stat.stat.exists
+    - kubernetes_etcd_ownership_marker_stat.stat.isreg
+    - kubernetes_etcd_ownership_marker_content.content | b64decode == "ansible-iac-role-kubernetes\n"
+    - >-
+      (not (kubernetes_admin_kubeconfig_exists | bool) and
+       not (kubernetes_kubelet_config_exists | bool)) or
+       kubernetes_reset.rc == 0
+
+- name: "Removing Kubernetes etcd ownership marker"
+  ansible.builtin.file:
+    path: "{{ kubernetes_etcd_ownership_marker }}"
+    state: absent
+  when:
+    - kubernetes_etcd_ownership_marker_stat.stat.exists
+    - kubernetes_etcd_ownership_marker_stat.stat.isreg
+    - kubernetes_etcd_ownership_marker_content.content | b64decode == "ansible-iac-role-kubernetes\n"
+    - >-
+      (not (kubernetes_admin_kubeconfig_exists | bool) and
+       not (kubernetes_kubelet_config_exists | bool)) or
+      kubernetes_reset.rc == 0
 
 - name: "Stopping Kubernetes services"
   ansible.builtin.service:
@@ -69,20 +206,47 @@
 
 - name: "Removing Kubernetes files"
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ kubernetes_uninstall_path }}"
     state: absent
   loop:
-    - /etc/kubernetes
-    - /var/lib/kubelet
-    - /etc/cni/net.d
-    - /var/lib/cni
+    - /etc/kubernetes/admin.conf
+    - /etc/kubernetes/kubelet.conf
+    - /var/lib/kubelet/config.yaml
+    - /var/lib/kubelet/kubeadm-flags.env
+    - /etc/cni/net.d/10-flannel.conflist
+    - /var/lib/cni/flannel
     - /etc/modules-load.d/kubernetes.conf
     - /etc/sysctl.d/99-kubernetes.conf
     - "{{ kubernetes_containerd_config_path }}"
     - "{{ kubernetes_crio_config_path }}"
     - "{{ kubernetes_control_plane_kubeconfig }}"
     - "{{ kubernetes_helm_binary_path }}"
-    - "{{ kubernetes_helm_archive_dir }}"
+  loop_control:
+    loop_var: kubernetes_uninstall_path
+  register: kubernetes_removed_files
+  when: kubernetes_uninstall_path != kubernetes_helm_archive_dir
+
+- name: "Checking Helm download directory ownership marker"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_helm_archive_dir }}/.ansible-iac-role-kubernetes-owned"
+  register: kubernetes_helm_archive_marker
+
+- name: "Reading Helm download directory ownership marker"
+  ansible.builtin.slurp:
+    src: "{{ kubernetes_helm_archive_dir }}/.ansible-iac-role-kubernetes-owned"
+  register: kubernetes_helm_archive_marker_content
+  when:
+    - kubernetes_helm_archive_marker.stat.exists
+    - kubernetes_helm_archive_marker.stat.isreg
+
+- name: "Removing role-owned Helm download directory"
+  ansible.builtin.file:
+    path: "{{ kubernetes_helm_archive_dir }}"
+    state: absent
+  when:
+    - kubernetes_helm_archive_marker.stat.exists
+    - kubernetes_helm_archive_marker.stat.isreg
+    - kubernetes_helm_archive_marker_content.content | b64decode == "ansible-iac-role-kubernetes\n"
 
 - name: "Removing Kubernetes packages"
   ansible.builtin.package:
@@ -136,13 +300,21 @@
     path: /etc/fstab
     regexp: "^# Kubernetes disabled: (.*)$"
     replace: "\\1"
+  register: kubernetes_swap_fstab_restore
   when: kubernetes_disable_swap_persistently | bool
 
 - name: "Re-enabling swap"
   ansible.builtin.command: swapon --all
-  changed_when: true
-  when: kubernetes_manage_swap | bool
+  changed_when: kubernetes_swap_fstab_restore.changed
+  when:
+    - kubernetes_manage_swap | bool
+    - kubernetes_swap_fstab_restore.changed
 
 - name: "Applying restored sysctl configuration"
   ansible.builtin.command: sysctl --system
   changed_when: true
+  when: >-
+    kubernetes_removed_files.results
+    | selectattr('item', 'equalto', '/etc/sysctl.d/99-kubernetes.conf')
+    | selectattr('changed', 'equalto', true)
+    | list | length > 0

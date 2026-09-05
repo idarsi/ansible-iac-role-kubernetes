@@ -42,8 +42,6 @@
         mode: "0644"
   vars:
     state: present
-    kubernetes_control_plane_state: present
-    kubernetes_cni_state: present
     kubernetes_application_manifest: |
       apiVersion: v1
       kind: Namespace
@@ -84,6 +82,8 @@
             targetPort: 80
     iac_blueprint:
       kubernetes:
+        control_plane_state: "present"
+        cni_state: "present"
         applications:
           - name: nginx
             state: present
@@ -102,8 +102,6 @@
   gather_facts: false
   vars:
     state: present
-    kubernetes_control_plane_state: present
-    kubernetes_cni_state: present
     kubernetes_application_manifest: |
       apiVersion: v1
       kind: Namespace
@@ -144,6 +142,8 @@
             targetPort: 80
     iac_blueprint:
       kubernetes:
+        control_plane_state: "present"
+        cni_state: "present"
         applications:
           - name: nginx
             state: present
@@ -156,14 +156,38 @@
   roles:
     - role: ansible-iac-role-kubernetes
 
+  post_tasks:
+    - name: "Check local Helm release after idempotent converge"
+      ansible.builtin.command:
+        cmd: >-
+          /usr/local/bin/helm status local-helm
+          --namespace=molecule-helm
+          --kubeconfig=/etc/kubernetes/admin.conf
+      register: local_helm_release
+      changed_when: false
+      no_log: true
+
+    - name: "Check local Helm resource after idempotent converge"
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig=/etc/kubernetes/admin.conf get configmap
+          molecule-helm-app --namespace=molecule-helm
+      register: local_helm_resource
+      changed_when: false
+
+    - name: "Verify local Helm application converged"
+      ansible.builtin.assert:
+        that:
+          - local_helm_release.rc == 0
+          - local_helm_resource.rc == 0
+        fail_msg: "Local Helm application did not converge successfully."
+
 - name: "Remove the application declaratively"
   hosts: all
   become: true
   gather_facts: false
   vars:
     state: present
-    kubernetes_control_plane_state: present
-    kubernetes_cni_state: present
     kubernetes_application_manifest: |
       apiVersion: v1
       kind: Namespace
@@ -204,6 +228,8 @@
             targetPort: 80
     iac_blueprint:
       kubernetes:
+        control_plane_state: "present"
+        cni_state: "present"
         applications:
           - name: nginx
             state: absent

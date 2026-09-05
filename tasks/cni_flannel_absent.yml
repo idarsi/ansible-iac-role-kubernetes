@@ -11,7 +11,7 @@
     --ignore-not-found=true --wait=false
   register: kubernetes_flannel_delete
   changed_when: "'deleted' in kubernetes_flannel_delete.stdout"
-  failed_when: false
+  failed_when: kubernetes_flannel_delete.rc != 0
   when: kubernetes_flannel_admin_kubeconfig.stat.exists
 
 - name: "Removing Flannel host configuration"

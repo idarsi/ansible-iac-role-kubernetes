@@ -48,10 +48,11 @@
     state: absent
   loop:
     - /etc/kubernetes/kubelet.conf
-    - /var/lib/kubelet
+    - /var/lib/kubelet/config.yaml
+    - /var/lib/kubelet/kubeadm-flags.env
     - /etc/cni/net.d/10-flannel.conflist
-    - /var/lib/cni
-    - /run/flannel
+    - /var/lib/cni/flannel
+    - /run/flannel/subnet.env
   when:
     - kubernetes_worker_kubelet_config_stat.stat.exists
     - not kubernetes_worker_local_admin_kubeconfig_stat.stat.exists

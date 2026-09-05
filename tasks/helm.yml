@@ -16,6 +16,21 @@
       Unsupported architecture for the Helm client:
       {{ ansible_facts["architecture"] }}
 
+- name: "Validating pinned Helm download source and checksum"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_helm_download_baseurl is match("^https://")
+      - kubernetes_helm_checksums[kubernetes_helm_architecture] is defined
+      - kubernetes_helm_checksums[kubernetes_helm_architecture] is match("^[0-9a-fA-F]{64}$")
+    fail_msg: >-
+      Helm installation requires an HTTPS source and a pinned SHA256 checksum
+      for architecture {{ kubernetes_helm_architecture }}.
+
+- name: "Checking Helm download directory before creation"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_helm_archive_dir }}"
+  register: kubernetes_helm_archive_dir_before
+
 - name: "Creating Helm download directory"
   ansible.builtin.file:
     path: "{{ kubernetes_helm_archive_dir }}"
@@ -23,12 +38,24 @@
     owner: root
     group: root
     mode: "0700"
+  register: kubernetes_helm_archive_directory
+
+- name: "Marking Helm download directory as role-owned"
+  ansible.builtin.copy:
+    content: "ansible-iac-role-kubernetes\n"
+    dest: "{{ kubernetes_helm_archive_dir }}/.ansible-iac-role-kubernetes-owned"
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - not kubernetes_helm_archive_dir_before.stat.exists
+    - kubernetes_helm_archive_directory.changed
 
 - name: "Downloading pinned Helm client"
   ansible.builtin.get_url:
     url: "{{ kubernetes_helm_download_baseurl }}/helm-{{ kubernetes_helm_version }}-linux-{{ kubernetes_helm_architecture }}.tar.gz"
     dest: "{{ kubernetes_helm_archive_dir }}/helm-{{ kubernetes_helm_version }}-linux-{{ kubernetes_helm_architecture }}.tar.gz"
-    checksum: "sha256:{{ kubernetes_helm_download_baseurl }}/helm-{{ kubernetes_helm_version }}-linux-{{ kubernetes_helm_architecture }}.tar.gz.sha256sum"
+    checksum: "sha256:{{ kubernetes_helm_checksums[kubernetes_helm_architecture] }}"
     owner: root
     group: root
     mode: "0600"

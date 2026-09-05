@@ -20,7 +20,10 @@
   ansible.builtin.command: "modprobe {{ item }}"
   loop: "{{ kubernetes_kernel_modules }}"
   loop_control:
-    label: "{{ item }}"
+    loop_var: kubernetes_kernel_module
+    label: "{{ kubernetes_kernel_module }}"
+  vars:
+    item: "{{ kubernetes_kernel_module }}"
   changed_when: false
 
 - name: "Persisting Kubernetes kernel modules"
@@ -87,6 +90,11 @@
     state: present
   when: kubernetes_manage_selinux | bool
 
+- name: "Checking whether Kubernetes etcd data directory exists"
+  ansible.builtin.stat:
+    path: /var/lib/etcd
+  register: kubernetes_etcd_directory_before
+
 - name: "Ensuring Kubernetes etcd data directory exists"
   ansible.builtin.file:
     path: /var/lib/etcd
@@ -94,9 +102,21 @@
     owner: root
     group: root
     mode: "0700"
+  register: kubernetes_etcd_directory
   when:
-    - kubernetes_manage_selinux | bool
     - kubernetes_control_plane_state == "present"
+
+- name: "Marking Kubernetes etcd data directory as role-owned"
+  ansible.builtin.copy:
+    content: "ansible-iac-role-kubernetes\n"
+    dest: "{{ kubernetes_etcd_ownership_marker }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - kubernetes_control_plane_state == "present"
+    - not kubernetes_etcd_directory_before.stat.exists
+    - kubernetes_etcd_directory.changed
 
 - name: "Ensuring Kubernetes CNI host paths exist"
   ansible.builtin.file:
@@ -116,52 +136,137 @@
       kubernetes_control_plane_state == "present" or
       kubernetes_worker_state == "present"
 
-- name: "Reading managed Kubernetes SELinux file contexts"
+- name: "Validating Kubernetes SELinux restorecon paths"
+  ansible.builtin.assert:
+    that:
+      - kubernetes_selinux_restorecon_path is string
+      - kubernetes_selinux_restorecon_path | trim | length > 1
+      - kubernetes_selinux_restorecon_path is match("^/")
+      - kubernetes_selinux_restorecon_path is not search('[(){}*+?|]')
+    fail_msg: >-
+      Invalid SELinux restorecon path derived from
+      '{{ kubernetes_selinux_context_record.target }}'.
+  loop: "{{ kubernetes_selinux_file_contexts }}"
+  loop_control:
+    loop_var: kubernetes_selinux_context_record
+    label: "{{ kubernetes_selinux_context_record.target }}"
+  vars:
+    kubernetes_selinux_restorecon_path: >-
+       {{ kubernetes_selinux_context_record.target | trim
+          | split('(/.*)?', 1) | first }}
+  when: kubernetes_manage_selinux | bool
+
+- name: "Checking existing Kubernetes SELinux restorecon paths"
+  ansible.builtin.stat:
+    path: >-
+       {{ kubernetes_selinux_context_record.target | trim
+          | split('(/.*)?', 1) | first }}
+  loop: "{{ kubernetes_selinux_file_contexts }}"
+  loop_control:
+    loop_var: kubernetes_selinux_context_record
+    label: "{{ kubernetes_selinux_context_record.target }}"
+  register: kubernetes_selinux_restorecon_paths
+  when: kubernetes_manage_selinux | bool
+
+- name: "Reading existing Kubernetes SELinux file contexts"
   ansible.builtin.command:
     cmd: semanage fcontext -l -C
   register: kubernetes_existing_selinux_contexts
   changed_when: false
   when: kubernetes_manage_selinux | bool
 
-- name: "Registering Kubernetes SELinux file contexts"
+- name: "Registering new Kubernetes SELinux file contexts"
   ansible.builtin.command:
     cmd: >-
-      semanage fcontext --add --type {{ item.type }} {{ item.target }}
+      semanage fcontext --add --type {{ kubernetes_selinux_context_record.type }}
+      {{ kubernetes_selinux_context_record.target }}
   loop: "{{ kubernetes_selinux_file_contexts }}"
   loop_control:
-    label: "{{ item.target }}"
-  register: kubernetes_selinux_contexts
-  changed_when: kubernetes_selinux_contexts.rc == 0
+    loop_var: kubernetes_selinux_context_record
+    label: "{{ kubernetes_selinux_context_record.target }}"
+  register: kubernetes_selinux_context_additions
+  changed_when: kubernetes_selinux_context_additions.rc == 0
   failed_when: >-
-    kubernetes_selinux_contexts.rc != 0 and
-    "already defined" not in kubernetes_selinux_contexts.stderr
+    kubernetes_selinux_context_additions.rc != 0 and
+    "already defined" not in kubernetes_selinux_context_additions.stderr
   when:
     - kubernetes_manage_selinux | bool
-    - item.target not in kubernetes_existing_selinux_contexts.stdout
+    - kubernetes_selinux_context_record.target not in kubernetes_existing_selinux_contexts.stdout
 
-- name: "Applying Kubernetes SELinux file contexts"
+- name: "Prechecking Kubernetes SELinux file contexts"
   ansible.builtin.command:
-    cmd: "restorecon -vRF {{ item.target | regex_replace('\\(\\.\\*\\)\\?$', '') }}"
-  loop: "{{ kubernetes_selinux_file_contexts }}"
+    argv:
+      - "restorecon"
+      - "-n"
+      - "-vR"
+      - >-
+        {{ item.kubernetes_selinux_context_record.target | trim
+           | split('(/.*)?', 1) | first }}
+  loop: "{{ kubernetes_selinux_restorecon_paths.results | default([]) }}"
   loop_control:
-    label: "{{ item.target }}"
-  register: kubernetes_selinux_restorecon
-  changed_when: "'Relabeled' in kubernetes_selinux_restorecon.stdout"
-  failed_when: false
+    label: "{{ item.kubernetes_selinux_context_record.target }}"
+  register: kubernetes_selinux_restorecon_precheck
+  changed_when: false
+  failed_when: kubernetes_selinux_restorecon_precheck.rc != 0
+  when:
+    - kubernetes_manage_selinux | bool
+    - item.stat.exists
+    - item.stat.isdir or item.stat.isreg
+
+- name: "Relabel Kubernetes SELinux file contexts when required"
+  ansible.builtin.command:
+    argv:
+      - "restorecon"
+      - "-vR"
+      - >-
+        {{ item.item.kubernetes_selinux_context_record.target | trim
+           | split('(/.*)?', 1) | first }}
+  loop: "{{ kubernetes_selinux_restorecon_precheck.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.kubernetes_selinux_context_record.target }}"
+  register: kubernetes_selinux_restorecon_result
+  changed_when: >-
+    'Relabeled' in (kubernetes_selinux_restorecon_result.stdout | default(''))
+  when:
+    - kubernetes_manage_selinux | bool
+    - >-
+      'Would relabel' in (item.stdout | default(''))
+
+- name: "Checking Kubernetes SELinux context ownership marker"
+  ansible.builtin.stat:
+    path: "{{ kubernetes_selinux_context_marker }}"
+  register: kubernetes_selinux_context_marker_stat
   when: kubernetes_manage_selinux | bool
 
-- name: "Ensuring existing Kubernetes paths use their SELinux file context"
-  ansible.builtin.command:
-    cmd: >-
-      chcon --type {{ item.type }}
-      {{ item.target | regex_replace('\\(\\.\\*\\)\\?$', '') }}
-  loop: "{{ kubernetes_selinux_file_contexts }}"
-  loop_control:
-    label: "{{ item.target }}"
-  register: kubernetes_selinux_chcon
-  changed_when: kubernetes_selinux_chcon.rc == 0
-  failed_when: false
-  when: kubernetes_manage_selinux | bool
+- name: "Reading Kubernetes SELinux context ownership marker"
+  ansible.builtin.slurp:
+    src: "{{ kubernetes_selinux_context_marker }}"
+  register: kubernetes_selinux_context_marker_content
+  when:
+    - kubernetes_manage_selinux | bool
+    - kubernetes_selinux_context_marker_stat.stat.exists
+    - kubernetes_selinux_context_marker_stat.stat.isreg
+
+- name: "Recording role-owned Kubernetes SELinux file contexts"
+  ansible.builtin.copy:
+    content: >-
+       {{ (
+          (kubernetes_selinux_context_marker_content.content | default('W10=') | b64decode | from_json)
+          + (kubernetes_selinux_context_additions.results
+             | selectattr('rc', 'defined')
+             | selectattr('rc', 'equalto', 0)
+             | map(attribute='kubernetes_selinux_context_record') | list)
+        ) | unique | list | to_json }}
+    dest: "{{ kubernetes_selinux_context_marker }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - kubernetes_manage_selinux | bool
+    - >-
+      (kubernetes_selinux_context_additions.results
+       | selectattr('rc', 'defined')
+       | selectattr('rc', 'equalto', 0) | list | length) > 0
 
 - name: "Ensuring SELinux is in the configured state"
   ansible.builtin.lineinfile:
@@ -216,5 +321,5 @@
   ansible.builtin.include_tasks: helm.yml
   when:
     - kubernetes_helm_install | bool
-    - kubernetes_applications | selectattr("type", "defined")
-      | selectattr("type", "equalto", "helm") | list | length > 0
+    - kubernetes_applications | selectattr("type", "equalto", "helm")
+      | list | length > 0

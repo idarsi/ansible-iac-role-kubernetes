@@ -1,0 +1,121 @@
+---
+- name: "Checking Helm release state"
+  ansible.builtin.command:
+    argv:
+      - "{{ kubernetes_helm_binary_path }}"
+      - status
+      - "{{ kubernetes_helm_record.release_name | default(kubernetes_helm_record.name) }}"
+      - --namespace
+      - "{{ kubernetes_helm_record.namespace }}"
+      - --kubeconfig
+      - "{{ kubernetes_control_plane_admin_kubeconfig }}"
+      - --output
+      - json
+  register: kubernetes_helm_release_status
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: "Building stable desired Helm release input"
+  ansible.builtin.set_fact:
+    kubernetes_helm_release_input: >-
+      {{ {
+        "release_name": kubernetes_helm_record.release_name | default(kubernetes_helm_record.name),
+        "namespace": kubernetes_helm_record.namespace,
+        "chart": kubernetes_helm_record.chart,
+        "repo_url": kubernetes_helm_record.repo_url | default(None),
+        "chart_version": kubernetes_helm_record.chart_version | default(None),
+        "timeout": kubernetes_helm_record.timeout | default("5m"),
+        "values": kubernetes_helm_record.get("values", {})
+      } | to_json(sort_keys=true) }}
+  no_log: true
+
+- name: "Calculating desired Helm release input hash"
+  ansible.builtin.set_fact:
+    kubernetes_helm_release_input_hash: "{{ kubernetes_helm_release_input | hash('sha256') }}"
+    kubernetes_helm_release_metadata_file: >-
+      {{ kubernetes_helm_release_metadata_dir }}/release-
+      {{ ((kubernetes_helm_record.namespace ~ "/" ~ (kubernetes_helm_record.release_name | default(kubernetes_helm_record.name))) | hash('sha256')) }}.sha256
+  no_log: true
+
+- name: "Checking stored Helm release input hash"
+  ansible.builtin.slurp:
+    src: "{{ kubernetes_helm_release_metadata_file }}"
+  register: kubernetes_helm_stored_input_hash
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: "Determine whether Helm release convergence is required"
+  ansible.builtin.set_fact:
+    kubernetes_helm_release_needs_convergence: >-
+      {{ kubernetes_helm_release_status.rc != 0 or
+         kubernetes_helm_stored_input_hash.content | default('') | b64decode | trim !=
+         kubernetes_helm_release_input_hash }}
+
+- name: "Build Helm upgrade command"
+  ansible.builtin.set_fact:
+    kubernetes_helm_upgrade_argv: >-
+      {{ [kubernetes_helm_binary_path, "upgrade", "--install",
+          kubernetes_helm_record.release_name | default(kubernetes_helm_record.name),
+          kubernetes_helm_record.chart, "--namespace", kubernetes_helm_record.namespace,
+          "--kubeconfig", kubernetes_control_plane_admin_kubeconfig,
+          "--create-namespace", "--wait", "--timeout",
+          kubernetes_helm_record.timeout | default("5m"), "--values", "-"]
+         + (["--repo", kubernetes_helm_record.repo_url]
+            if kubernetes_helm_record.repo_url is defined else [])
+         + (["--version", kubernetes_helm_record.chart_version]
+            if kubernetes_helm_record.chart_version is defined else []) }}
+  no_log: true
+
+- name: "Converge Helm release"
+  ansible.builtin.command:
+    argv: "{{ kubernetes_helm_upgrade_argv }}"
+  args:
+    stdin: "{{ kubernetes_helm_record.get('values', {}) | to_nice_yaml }}"
+    stdin_add_newline: true
+  register: kubernetes_helm_install_result
+  changed_when: kubernetes_helm_install_result.rc == 0
+  failed_when: false
+  when: kubernetes_helm_release_needs_convergence | bool
+  no_log: true
+
+- name: "Report Helm convergence failure without sensitive command output"
+  ansible.builtin.debug:
+    msg: >-
+      Helm convergence failed for release
+      {{ kubernetes_helm_record.release_name | default(kubernetes_helm_record.name) }}
+      in namespace {{ kubernetes_helm_record.namespace }} (rc={{ kubernetes_helm_install_result.rc }}).
+      Command output is suppressed because Helm values may contain secrets.
+  when:
+    - kubernetes_helm_release_needs_convergence | bool
+    - kubernetes_helm_install_result.rc | default(0) != 0
+
+- name: "Require successful Helm release convergence"
+  ansible.builtin.fail:
+    msg: >-
+      Helm convergence failed for release
+      {{ kubernetes_helm_record.release_name | default(kubernetes_helm_record.name) }}
+      in namespace {{ kubernetes_helm_record.namespace }}; see the target-side Helm logs.
+  when:
+    - kubernetes_helm_release_needs_convergence | bool
+    - kubernetes_helm_install_result.rc | default(0) != 0
+
+- name: "Creating Helm release metadata directory"
+  ansible.builtin.file:
+    path: "{{ kubernetes_helm_release_metadata_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: kubernetes_helm_release_needs_convergence | bool
+
+- name: "Storing Helm release input hash"
+  ansible.builtin.copy:
+    content: "{{ kubernetes_helm_release_input_hash }}\n"
+    dest: "{{ kubernetes_helm_release_metadata_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: kubernetes_helm_release_needs_convergence | bool
+  no_log: true

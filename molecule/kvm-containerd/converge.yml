@@ -6,7 +6,9 @@
   gather_facts: true
   vars:
     state: present
-    kubernetes_control_plane_state: present
-    kubernetes_cni_state: present
+    iac_blueprint:
+      kubernetes:
+        control_plane_state: "present"
+        cni_state: "present"
   roles:
     - role: ansible-iac-role-kubernetes
