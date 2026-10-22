@@ -10,22 +10,22 @@ ansible:
     create: ${IDARSI_TEST_ENVIRONMENT}/molecule/kvm/create.yml
     destroy: ${IDARSI_TEST_ENVIRONMENT}/molecule/kvm/destroy.yml
 platforms:
-- name: k8s-control-plane-rocky9
-  install_source: ${IDARSI_TEST_KVM_INSTALL_SOURCE}
-  kickstart: ../kvm-containerd/rocky9-10.ks.tmpl
-  memory_mb: 2048
-  vcpus: 2
-  disk_size_gb: 30
-  install_timeout: 3600
-  ssh_user: molecule
-- name: k8s-worker-rocky9
-  install_source: ${IDARSI_TEST_KVM_INSTALL_SOURCE}
-  kickstart: ../kvm-containerd/rocky9-10.ks.tmpl
-  memory_mb: 2048
-  vcpus: 2
-  disk_size_gb: 30
-  install_timeout: 3600
-  ssh_user: molecule
+  - name: k8s-control-plane-rocky9
+    install_source: ${IDARSI_TEST_KVM_INSTALL_SOURCE}
+    kickstart: ../kvm-containerd/rocky9-10.ks.tmpl
+    memory_mb: 2048
+    vcpus: 2
+    disk_size_gb: 30
+    install_timeout: 3600
+    ssh_user: molecule
+  - name: k8s-worker-rocky9
+    install_source: ${IDARSI_TEST_KVM_INSTALL_SOURCE}
+    kickstart: ../kvm-containerd/rocky9-10.ks.tmpl
+    memory_mb: 2048
+    vcpus: 2
+    disk_size_gb: 30
+    install_timeout: 3600
+    ssh_user: molecule
 provisioner:
   name: ansible
   env:
