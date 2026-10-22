@@ -4,6 +4,19 @@
   connection: local
   gather_facts: false
   tasks:
+    - name: "Load role defaults for default Flannel SELinux target regression check"
+      ansible.builtin.include_vars:
+        file: "../../defaults/main.yml"
+        name: kubernetes_role_defaults
+
+    - name: "Assert default Flannel SELinux target uses canonical runtime path"
+      ansible.builtin.assert:
+        that:
+          - >-
+            kubernetes_role_defaults.kubernetes_selinux_file_contexts
+            | selectattr('target', 'equalto', '/run/flannel(/.*)?')
+            | list | length == 1
+
     - name: "Exercise role SELinux target validation through the role entrypoint"
       ansible.builtin.include_role:
         name: ansible-iac-role-kubernetes

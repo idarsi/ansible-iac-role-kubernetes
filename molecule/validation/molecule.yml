@@ -2,6 +2,7 @@
 driver:
   name: default
 scenario:
+  name: validation
   test_sequence:
     - syntax
     - converge
@@ -12,3 +13,5 @@ provisioner:
     ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
 verifier:
   name: ansible
+platforms:
+  - name: validation

@@ -70,6 +70,12 @@
       register: kubernetes_node_ready
       changed_when: false
 
+    - name: "Reading Kubernetes node name"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o jsonpath={.items[0].metadata.name}
+      register: kubernetes_node_name
+      changed_when: false
+
     - name: "Checking containerd KVM test facts"
       ansible.builtin.assert:
         that:
@@ -83,7 +89,7 @@
           - kubernetes_repo.stat.exists
           - admin_kubeconfig.stat.exists
           - kubernetes_node.rc == 0
-          - "'k8s-containerd-rocky9' in kubernetes_node.stdout"
+          - kubernetes_node_name.stdout == ansible_facts["hostname"]
           - "' Ready ' in kubernetes_node_ready.stdout"
           - ansible_facts["swaptotal_mb"] | int == 0
           - "'overlay' in (kernel_modules_config.content | b64decode)"
@@ -97,8 +103,8 @@
           - "'Would relabel' not in kubernetes_selinux_relabel_precheck.stdout"
           - "'container-selinux' in ansible_facts.packages"
           - "'policycoreutils-python-utils' in ansible_facts.packages"
-          - ansible_facts["distribution"] == "Rocky"
-          - ansible_facts["distribution_major_version"] == "9"
+          - ansible_facts["distribution"] in ["Rocky", "RedHat"]
+          - ansible_facts["distribution_major_version"] in ["9", "10"]
           - ansible_facts["virtualization_type"] != "docker"
           - ansible_facts["virtualization_type"] != "podman"
         fail_msg: "containerd KVM Molecule test failed"
