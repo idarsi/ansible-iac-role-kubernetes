@@ -4,6 +4,59 @@
   connection: local
   gather_facts: false
   tasks:
+    - name: "Load role defaults for Flannel SELinux target regression check"
+      ansible.builtin.include_vars:
+        file: "../../defaults/main.yml"
+        name: kubernetes_role_defaults
+
+    - name: "Assert EL 9 Flannel SELinux target"
+      ansible.builtin.assert:
+        that:
+          - >-
+            kubernetes_role_defaults.kubernetes_selinux_file_contexts
+            | selectattr('target', 'equalto', '/var/run/flannel(/.*)?')
+            | list | length == 1
+      vars:
+        ansible_facts:
+          distribution: "Rocky"
+          distribution_major_version: "9"
+
+    - name: "Assert RHEL 9 Flannel SELinux target"
+      ansible.builtin.assert:
+        that:
+          - >-
+            kubernetes_role_defaults.kubernetes_selinux_file_contexts
+            | selectattr('target', 'equalto', '/var/run/flannel(/.*)?')
+            | list | length == 1
+      vars:
+        ansible_facts:
+          distribution: "RedHat"
+          distribution_major_version: "9"
+
+    - name: "Assert Rocky 10 Flannel SELinux target"
+      ansible.builtin.assert:
+        that:
+          - >-
+            kubernetes_role_defaults.kubernetes_selinux_file_contexts
+            | selectattr('target', 'equalto', '/run/flannel(/.*)?')
+            | list | length == 1
+      vars:
+        ansible_facts:
+          distribution: "Rocky"
+          distribution_major_version: "10"
+
+    - name: "Assert RHEL 10 Flannel SELinux target"
+      ansible.builtin.assert:
+        that:
+          - >-
+            kubernetes_role_defaults.kubernetes_selinux_file_contexts
+            | selectattr('target', 'equalto', '/run/flannel(/.*)?')
+            | list | length == 1
+      vars:
+        ansible_facts:
+          distribution: "RedHat"
+          distribution_major_version: "10"
+
     - name: "Exercise role SELinux target validation through the role entrypoint"
       ansible.builtin.include_role:
         name: ansible-iac-role-kubernetes

@@ -6,6 +6,16 @@ ANSIBLE-IAC-ROLE-KUBERNETES
 - Arsi Atomi <arsi@atomi.sh>
 - Arsi Atomi <arsi.atomi@valtori.fi>
 
+> **Maturity State: Beta**<br>
+> **RC Readiness: 80%** (fresh assessment of HEAD `cfdd685` plus the current
+> working tree). Focused Rocky Linux 9 and Rocky Linux 10 containerd KVM runs
+> passed convergence, idempotence, and verification. RHEL 9 and 10 remain
+> configured but unverified pending subscription/repository automation. The
+> role's initial container-runtime,
+> control-plane, Flannel, worker-join, SELinux, and uninstall workflows are
+> implemented. Interfaces and supported Kubernetes combinations may
+> still evolve before a stable release.
+
 Overview
 ========
 
@@ -21,12 +31,6 @@ The role uses declarative `present` and `absent` states for Kubernetes
 components. The `install` and `uninstall` states provide the complete
 installation and removal workflows.
 
-> **Maturity Level: Beta**<br>
-> The role's initial container-runtime, control-plane, Flannel, worker-join,
-> SELinux, and uninstall workflows are implemented and covered by KVM-backed
-> Molecule scenarios. Interfaces and supported Kubernetes combinations may
-> still evolve before a stable release.
-
 Supported Kubernetes versions are selected through the `kubernetes_version`
 repository channel variable. The default channel is `v1.34`.
 
@@ -37,9 +41,11 @@ Operating system                | Supported versions | Lifecycle reference
 Rocky Linux                     | 9, 10              | [Rocky Linux release guide](https://wiki.rockylinux.org/rocky/version/)
 Red Hat Enterprise Linux        | 9, 10              | [Red Hat documentation](https://access.redhat.com/documentation/)
 
-The automated KVM test matrix currently uses Rocky Linux 9. Rocky Linux 10 is
-included in the role's supported-operating-system assertions and should be
-validated in the target environment before production use.
+Rocky 9 and 10 have passed focused containerd KVM runs (convergence,
+idempotence, and verification). RHEL 9 and 10 are configured as possible test
+platforms, not verified or working: testing requires subscription-backed media
+and guest repository automation that is not currently available. The unfiltered KVM scenario includes
+RHEL and can fail without those prerequisites.
 
 Supported container runtimes:
 
@@ -150,8 +156,13 @@ Requirements
 - Root privileges or passwordless privilege escalation on target hosts.
 - Network access to the Kubernetes, container runtime, and Flannel package or
   release repositories.
-- For the KVM Molecule scenarios: KVM, libvirt, Vagrant, and the
-  `vagrant-libvirt` plugin.
+- For KVM Molecule scenarios: KVM and libvirt, with the shared Idarsi test
+  environment activated. Vagrant is not used.
+- Rocky Linux KVM tests use `IDARSI_TEST_KVM_INSTALL_SOURCE` (9) and
+  `IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10` (10). RHEL's configured media
+  variables are `IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL9` and
+  `IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL10`; RHEL testing is unverified and
+  requires subscription-backed media and guest repository automation.
 
 The versions used by the automated test environment are documented in
 [requirements-ci.txt](requirements-ci.txt). Install them in a dedicated Python
@@ -313,8 +324,8 @@ not install packages, alter files, restart services, or change cluster data.
 ## Testing
 
 The KVM-backed Molecule scenarios and their prerequisites are documented in
-[TESTING.md](TESTING.md). The scenarios use real Rocky Linux virtual machines
-through libvirt/KVM rather than containerized test hosts.
+[TESTING.md](TESTING.md). The scenarios provision virtual machines through
+libvirt/KVM rather than containerized test hosts.
 
 Contributing
 ============
