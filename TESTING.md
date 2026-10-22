@@ -21,10 +21,10 @@ for host setup and prerequisites.
 
 | Platform/image | Ansible or application versions | Molecule scenarios | Main coverage |
 |---|---|---|---|
-| Rocky Linux 9 / KVM | Kubernetes v1.34; versions in `requirements-ci.txt` | `validation`; `kvm-containerd` | Configured; runtime execution not verified |
-| Rocky Linux 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Focused scenario passed convergence, idempotence, and verification |
-| RHEL 9 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; not working/verified; subscription/repository automation required |
-| RHEL 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; not working/verified; subscription/repository automation required |
+| Rocky Linux 9 / KVM | Kubernetes v1.34; versions in `requirements-ci.txt` | `validation`; `kvm-containerd` | Focused containerd KVM run passed convergence, idempotence, and verification |
+| Rocky Linux 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Focused containerd KVM run passed convergence, idempotence, and verification |
+| RHEL 9 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; unverified pending subscription-backed media and guest repository automation |
+| RHEL 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; unverified pending subscription-backed media and guest repository automation |
 
 ## Scenario coverage
 
@@ -68,11 +68,12 @@ the `default` scenario and fails because this role has no default scenario.
 Reset a named scenario explicitly, for example `molecule reset -s kvm-containerd`
 or `molecule reset -s kvm-crio`.
 
-The verified evidence is a Rocky Linux 10 `kvm-containerd` run passing
-convergence and idempotence, including SELinux `/run/flannel` handling. Rocky
-Linux 9 runtime execution is not evidenced. RHEL runtime coverage is not
-verified and cannot be expected to work without subscription/repository
-automation.
+The verified evidence is focused Rocky Linux 9 and Rocky Linux 10
+`kvm-containerd` runs passing convergence, idempotence, and verification,
+including SELinux `/var/run/flannel` handling on Rocky Linux 9 (via semanage
+equivalency) and `/run/flannel` handling on Rocky Linux 10. This evidence does
+not cover every scenario or constitute a full-suite run. RHEL runtime coverage
+remains unverified pending subscription/repository automation.
 
 ## Commands
 

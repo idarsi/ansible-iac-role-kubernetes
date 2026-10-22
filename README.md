@@ -7,11 +7,11 @@ ANSIBLE-IAC-ROLE-KUBERNETES
 - Arsi Atomi <arsi.atomi@valtori.fi>
 
 > **Maturity State: Beta**<br>
-> **RC Readiness: 77%** (fresh assessment of the working tree on
-> `fix/molecule-portability`, based on HEAD `4b76564` plus the changes present
-> at assessment time). Rocky Linux 10 containerd runtime convergence,
-> idempotence, and verification have passed; Rocky Linux 9 runtime execution and all RHEL
-> runtime execution remain unverified. The role's initial container-runtime,
+> **RC Readiness: 80%** (fresh assessment of HEAD `cfdd685` plus the current
+> working tree). Focused Rocky Linux 9 and Rocky Linux 10 containerd KVM runs
+> passed convergence, idempotence, and verification. RHEL 9 and 10 remain
+> configured but unverified pending subscription/repository automation. The
+> role's initial container-runtime,
 > control-plane, Flannel, worker-join, SELinux, and uninstall workflows are
 > implemented. Interfaces and supported Kubernetes combinations may
 > still evolve before a stable release.
@@ -41,10 +41,10 @@ Operating system                | Supported versions | Lifecycle reference
 Rocky Linux                     | 9, 10              | [Rocky Linux release guide](https://wiki.rockylinux.org/rocky/version/)
 Red Hat Enterprise Linux        | 9, 10              | [Red Hat documentation](https://access.redhat.com/documentation/)
 
-Rocky 10 has a verified containerd KVM run. Rocky 9 runtime testing is not
-verified. RHEL 9 and 10 are configured as possible test platforms, not verified
-or working: testing requires subscription-backed media and guest repository
-automation that is not currently available. The unfiltered KVM scenario includes
+Rocky 9 and 10 have passed focused containerd KVM runs (convergence,
+idempotence, and verification). RHEL 9 and 10 are configured as possible test
+platforms, not verified or working: testing requires subscription-backed media
+and guest repository automation that is not currently available. The unfiltered KVM scenario includes
 RHEL and can fail without those prerequisites.
 
 Supported container runtimes:

@@ -21,7 +21,12 @@ kubernetes_selinux_file_contexts:
   - { target: "/var/lib/etcd(/.*)?", type: "container_file_t" }
   - { target: "/opt/cni/bin(/.*)?", type: "container_file_t" }
   - { target: "/etc/cni/net.d(/.*)?", type: "container_file_t" }
-  - { target: "/run/flannel(/.*)?", type: "container_file_t" }
+  - target: >-
+      {{ '/var/run/flannel(/.*)?'
+         if (ansible_facts['distribution'], ansible_facts['distribution_major_version'])
+            in [('Rocky', '9'), ('RedHat', '9')]
+         else '/run/flannel(/.*)?' }}
+    type: "container_file_t"
 kubernetes_cni: flannel
 kubernetes_cni_state: absent
 kubernetes_flannel_version: v0.28.8
