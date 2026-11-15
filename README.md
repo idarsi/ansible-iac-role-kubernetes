@@ -10,7 +10,8 @@
 > assertions passed; this is not a standalone zero-change Molecule idempotence
 > result. Earlier three-lane validation and focused baseline evidence are
 > retained. Readiness remains 52% because broader schema, lifecycle and platform
-> evidence is incomplete. RHEL remains blocked and unverified; this was not a
+> evidence is incomplete. RHEL 9/10 are temporarily excluded from runtime tests,
+> not from the role's supported OS contract, and remain unverified; this was not a
 > full-suite run. See the
 > [criterion-level assessment](MATURITY.md) for evidence and remaining gaps.
 
@@ -48,16 +49,18 @@ Rocky Linux                     | 9, 10              | [Rocky Linux release guid
 Red Hat Enterprise Linux        | 9, 10              | [Red Hat documentation](https://access.redhat.com/documentation/)
 
 Rocky 9 and 10 have passed focused containerd KVM runs (convergence,
-idempotence, and verification). RHEL 9 and 10 are configured as possible test
-platforms, not verified or working: testing requires subscription-backed media
-and guest repository automation that is not currently available. The unfiltered KVM scenario includes
-RHEL and can fail without those prerequisites.
+idempotence, and verification). RHEL 9 and 10 remain in the role's supported OS
+contract but are temporarily excluded from the executable test matrix, with no
+runtime verification claim. Unfiltered `molecule test -s kvm-containerd`
+selects only Rocky 9 and 10. Synthetic RHEL facts in validation test defaults
+only; they do not establish RHEL runtime coverage.
 
 RHEL guests require authorized access to matching Red Hat BaseOS and AppStream
 content, including `container-selinux`. Repository IDs vary with Satellite,
 RHUI and EUS; registration and repository provisioning belong to the environment
-owner, not this role or the shared KVM launcher. RHEL testing remains blocked
-until that access is supplied; the exact guest repository failure is unverified.
+owner, not this role or the shared KVM launcher. Restoring RHEL runtime tests
+requires that access and an explicit matrix update; the exact guest repository
+failure is unverified.
 Do not substitute another distribution's packages or weaken SELinux to bypass it.
 
 Supported container runtimes:
@@ -182,10 +185,8 @@ Requirements
 - For KVM Molecule scenarios: KVM and libvirt, with the shared Idarsi test
   environment activated. Vagrant is not used.
 - Rocky Linux KVM tests use `IDARSI_TEST_KVM_INSTALL_SOURCE` (9) and
-  `IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10` (10). RHEL's configured media
-  variables are `IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL9` and
-  `IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL10`; RHEL testing is unverified and
-  requires subscription-backed media and guest repository automation.
+  `IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10` (10). RHEL is temporarily excluded
+  from runtime tests; no RHEL media variables are required by the active matrix.
 
 The versions used by the automated test environment are documented in
 [requirements-ci.txt](requirements-ci.txt). Install them in a dedicated Python

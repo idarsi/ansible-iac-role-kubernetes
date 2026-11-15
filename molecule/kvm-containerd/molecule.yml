@@ -25,22 +25,6 @@ platforms:
     disk_size_gb: 30
     install_timeout: 3600
     ssh_user: molecule
-  - name: k8s-containerd-rhel9
-    install_source: "${IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL9}"
-    kickstart: rhel9.ks.tmpl
-    memory_mb: 4096
-    vcpus: 2
-    disk_size_gb: 30
-    install_timeout: 3600
-    ssh_user: molecule
-  - name: k8s-containerd-rhel10
-    install_source: "${IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL10}"
-    kickstart: rhel10.ks.tmpl
-    memory_mb: 4096
-    vcpus: 2
-    disk_size_gb: 30
-    install_timeout: 3600
-    ssh_user: molecule
 
 provisioner:
   name: ansible

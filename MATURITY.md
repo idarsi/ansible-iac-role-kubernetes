@@ -1,5 +1,14 @@
 # Maturity assessment
 
+Matrix-only update 2026-11-15: `update/temporarily-exclude-rhel-tests`, based on
+`1f32342`. RHEL 9/10 are temporarily excluded from executable runtime tests;
+Rocky 9/10 remain. The production supported-OS contract is unchanged. Synthetic
+RHEL validation facts establish defaults coverage only, not runtime evidence.
+No new runtime results are claimed. All criterion scores below remain unchanged:
+the supported-matrix criterion was already partial because RHEL was unverified,
+and removing test entries does not close that gap. RC readiness remains
+52%/Alpha; prior focused runtime results remain historical evidence.
+
 Evidence updated 2026-11-15: `update/consolidated-local-kubernetes`, based on
 `8919b8c` plus the scoped working-tree repairs. The scorecard
 retains the prior assessment's scores for the criterion-specific reasons below.
@@ -69,7 +78,7 @@ Each score uses the maturity rubric's 0, 0.5, or 1 multiplier.
 | Tests: functional verification | 3 / 6 | Baseline and nine targeted combinations passed observable checks, including 16 absent managed paths and preserved CNI content; wider matrix lacks current results. |
 | Tests: idempotence | 2 / 4 | Historical baseline zero-change idempotence plus application repeat assertions; no standalone application zero-change action and incomplete feature coverage. |
 | Tests: lifecycle/guardrails | 2 / 4 | Three-lane application, CRI-O component and repeated uninstall checks passed; comprehensive destructive/recovery/platform coverage remains incomplete. |
-| Tests: supported matrix | 1.5 / 3 | Fresh Rocky 9 and historical Rocky 10 results; RHEL 9/10 unverified. |
+| Tests: supported matrix | 1.5 / 3 | Prior Rocky 9 and historical Rocky 10 results; RHEL 9/10 unverified and temporarily excluded from runtime tests, not the support contract. |
 | Tests: CI | 0.5 / 1 | PR static/validation and scheduled KVM jobs configured; current run and branch-protection enforcement unavailable. |
 | **Tests subtotal** | **14 / 25** | |
 | Documentation: operator | 2 / 4 | Usage/safety examples exist; complete schema and state semantics remain incomplete. |

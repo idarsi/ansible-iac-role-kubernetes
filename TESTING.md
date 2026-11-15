@@ -12,10 +12,10 @@ shared `ansible-current` environment sets `IDARSI_TEST_ENVIRONMENT` to the
 environment repository and provides pinned Ansible collections. Shared KVM
 playbooks default to libvirt's `default` network. Rocky 9 uses
 `IDARSI_TEST_KVM_INSTALL_SOURCE`; Rocky 10 uses
-`IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10`. Configured RHEL 9 and 10 entries use
-`IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL9` and
-`IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL10`, respectively. See the shared KVM guide
-for host setup and prerequisites.
+`IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10`. RHEL 9 and 10 are temporarily
+excluded from runtime tests, without changing `iac_supported_os` or the public
+role contract. No RHEL media variables are needed by the active matrix.
+See the shared KVM guide for host setup and prerequisites.
 
 ## Automated matrix
 
@@ -24,8 +24,11 @@ for host setup and prerequisites.
 | Rocky Linux 9 / KVM | Kubernetes v1.34; shared Core 2.15.13 / 2.20.8 / 2.21.3 | `validation`; `kvm-containerd` | Three-lane validation passed; min/next KVM passed at `0829cb9` plus test repairs, historical current KVM pass retained at `856d417` |
 | Rocky Linux 9 / KVM | Kubernetes v1.34; Core 2.15.13 / 2.20.8 / 2.21.3 | `kvm-containerd-application`; `kvm-containerd-uninstall`; `kvm-crio-component-absent` | All nine targeted combinations passed at `8919b8c` plus scoped repairs; details below |
 | Rocky Linux 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Focused containerd KVM run passed convergence, idempotence, and verification |
-| RHEL 9 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; unverified pending subscription-backed media and guest repository automation |
-| RHEL 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; unverified pending subscription-backed media and guest repository automation |
+
+RHEL 9/10 have no executable KVM platforms and no runtime coverage claim.
+The retained RHEL kickstart templates are inactive fixtures for possible later
+restoration. Synthetic RHEL facts in `validation/verify.yml` cover SELinux
+defaults only, not execution on RHEL hosts.
 
 ## Scenario coverage
 
@@ -74,17 +77,14 @@ remaining KVM scenarios are manual.
 KVM scenarios require the shared environment's documented KVM host setup,
 hardware virtualization, libvirt, an active `default` network, and the
 matching installation source. Scheduled/manual CI targets Rocky 9 and Rocky 10
-separately with `--platform-name`. The scenario retains configured RHEL 9 and 10
-entries for future/manual testing; these are not verified or working in the
-current environment and require subscription-backed media plus guest repository
-automation. An unfiltered `molecule test -s kvm-containerd` includes RHEL and can
-fail without those prerequisites. An empty `install_source` does not skip a
-platform. Rocky 9 uses
+separately with `--platform-name`. An unfiltered
+`molecule test -s kvm-containerd` now selects exactly Rocky 9 and Rocky 10;
+RHEL 9/10 are temporarily excluded, including from manual runtime selection.
+An empty `install_source` does not skip a platform. Rocky 9 uses
 `IDARSI_TEST_KVM_INSTALL_SOURCE`, Rocky 10 uses
-`IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10`. RHEL media variables are reserved for
-future/manual testing; configure guest repository access or registration
-before attempting. The shared tooling does not download RHEL media or store
-subscription credentials. KVM cannot run on
+`IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10`. Restoring RHEL requires an explicit
+matrix update plus authorized media and guest repository access. The shared
+tooling does not download RHEL media or store subscription credentials. KVM cannot run on
 ordinary GitHub-hosted runners.
 
 Every VM-backed scenario uses the shared managed/default KVM driver and shared
@@ -105,7 +105,7 @@ The earlier verified baseline evidence is focused Rocky Linux 9 and Rocky Linux 
 including SELinux `/var/run/flannel` handling on Rocky Linux 9 (via semanage
 equivalency) and `/run/flannel` handling on Rocky Linux 10. This evidence does
 not cover every scenario or constitute a full-suite run. RHEL runtime coverage
-remains unverified pending subscription/repository automation.
+remains unverified and temporarily excluded from the matrix.
 
 ## Commands
 
@@ -257,14 +257,14 @@ test -n "${IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10:-}" || { echo "Set IDARSI_TEST
 ```
 
 Use `default` for the network check because the shared KVM playbooks create
-guests on libvirt's default network. RHEL scenarios additionally need the
-RHEL-specific media and guest repository access described above.
+guests on libvirt's default network. The active matrix requires only Rocky
+installation sources.
 
 The environment owner must provide authorized matching Red Hat BaseOS and
-AppStream content, including `container-selinux`, before RHEL runs. Repository
+AppStream content, including `container-selinux`, before restoring RHEL runs. Repository
 IDs can differ under Satellite, RHUI or EUS; no fixed IDs are enforced here.
 The role and shared KVM launcher do not register guests or provision those
-repositories. RHEL tests remain blocked pending this access; the exact guest
+repositories. RHEL runtime tests are temporarily excluded; the exact guest
 failure has not been diagnosed. Do not substitute foreign packages or disable
 SELinux. The tester owns RHEL diagnostics and subsequent runtime verification.
 
