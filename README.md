@@ -2,12 +2,14 @@
 >
 > **RC Readiness: 52%**
 >
-> Assessed at `update/ansible-215-numeric-validation` (base `325fefc` plus
-> this working tree). Final validation passed Core 2.15.13, 2.20.8 and 2.21.3,
-> including 24 expected negative cases and four platform assertions. A focused
-> Rocky 9 containerd KVM retest passed convergence, idempotence and verification.
-> Other platforms and the full suite were not retested; historical Rocky 9/10
-> evidence is retained. See the
+> Evidence update at `update/consolidated-local-kubernetes` (base `0829cb9`
+> plus working-tree test repairs): three-lane validation passed all 27 exact
+> negatives, both completion checks and four platform-default assertions.
+> Min/next Rocky 9 containerd KVM passed convergence, zero-change idempotence,
+> verification and cleanup. The historical current-lane Rocky 9 KVM pass at
+> `856d417` is retained without rerun; role code is unchanged. Readiness remains
+> 52% because broader schema, lifecycle and platform evidence is incomplete.
+> Wider platform/full-suite gaps remain. See the
 > [criterion-level assessment](MATURITY.md) for evidence and remaining gaps.
 
 ANSIBLE-IAC-ROLE-KUBERNETES

@@ -21,7 +21,7 @@ for host setup and prerequisites.
 
 | Platform/image | Ansible or application versions | Molecule scenarios | Main coverage |
 |---|---|---|---|
-| Rocky Linux 9 / KVM | Kubernetes v1.34; versions in `requirements-ci.txt` | `validation`; `kvm-containerd` | Focused containerd KVM run passed convergence, idempotence, and verification |
+| Rocky Linux 9 / KVM | Kubernetes v1.34; shared Core 2.15.13 / 2.20.8 / 2.21.3 | `validation`; `kvm-containerd` | Three-lane validation passed; min/next KVM passed at `0829cb9` plus test repairs, historical current KVM pass retained at `856d417` |
 | Rocky Linux 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Focused containerd KVM run passed convergence, idempotence, and verification |
 | RHEL 9 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; unverified pending subscription-backed media and guest repository automation |
 | RHEL 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; unverified pending subscription-backed media and guest repository automation |
@@ -32,9 +32,15 @@ for host setup and prerequisites.
   inclusive port boundaries, and rejection of invalid types/ranges through the
   role entrypoint. API-port negative tests assert the exact failure and use a
   separate final play to detect unexpected acceptance despite `meta: end_host`.
-  Existing Helm/reference/cleanup negative tasks later in `verify.yml` remain
-  unreachable after its successful validation-only role invocation ends the
-  play; those older tests must not be counted as executed coverage.
+  The three older Helm/reference/cleanup negatives now run in a separate play
+  after the successful validation-only invocation. Each checks the exact failed
+  task and message before recording its identity; a final separate play requires
+  all three identities in order and a count of three, even if unexpected
+  acceptance invokes `meta: end_host`. Application/reference facts are reset
+  between cases to prevent an earlier invalid input contaminating the next.
+  Runtime confirmation passed all three lanes with 27 exact
+  negative cases (24 API-port plus three older cases). The retained marker checks
+  only establish marker absence, not comprehensive host non-mutation evidence.
 - `kvm-containerd`, `kvm-crio`: baseline runtime installation, bootstrap and
   idempotence.
 - `kvm-containerd-cluster`, `kvm-crio-cluster`: worker references, CNI and
@@ -110,13 +116,13 @@ their original names, resolving those references without duplicating defaults.
 All four platform assertions use the direct SELinux-context variable; no other
 namespaced defaults references were found in Molecule scenarios.
 After the verifier adjustment and stronger blueprint-negative isolation (a valid
-legacy fallback), the tester's final `molecule test -s validation` runs exited
+legacy fallback), the tester's earlier `molecule test -s validation` runs exited
 0 on Core 2.15.13, 2.20.8 and 2.21.3. All positive cases, exactly 24 expected
 negative cases with exact failure assertions, the completeness check and all
 four platform-specific SELinux assertions passed. These platform assertions
 validate defaults; they are not four-platform runtime verification.
 
-The final current-lane command
+The historical current-lane command at `856d417`
 `molecule test -s kvm-containerd --platform-name k8s-containerd-rocky9`
 also exited 0: convergence reported 27 changes, idempotence reported zero
 changes, and verification reported 16 successful tasks with zero failures.
@@ -131,6 +137,30 @@ min intentionally differ from `requirements-ci.txt`, which pins the next lane.
 CI is not yet a three-lane compatibility matrix. Port tests validate inputs,
 not custom-port cluster connectivity; kubeadm bind-port configuration is
 outside this focused change. The tester owns Molecule and KVM execution.
+
+### Final focused retest for the negative-test repair
+
+At `0829cb9` plus working-tree test repairs, the tester confirmed
+`molecule test -s validation` exited 0 in all three shared lanes. Each passed
+24 API-port and three restored Helm/reference/cleanup exact rejections, both
+completion assertions and four platform-default assertions:
+
+| Shared lane | Core | Verify recap |
+|---|---|---|
+| `ansible-min` | 2.15.13 | ok=368, changed=0, failed=0, rescued=27 |
+| `ansible-current` | 2.20.8 | ok=396, changed=0, failed=0, rescued=27 |
+| `ansible-next` | 2.21.3 | ok=396, changed=0, failed=0, rescued=27 |
+
+Serialized `ansible-min` and `ansible-next` runs of
+`molecule test -s kvm-containerd --platform-name k8s-containerd-rocky9` both
+exited 0. Each reported convergence ok=71/changed=27, idempotence
+ok=61/changed=0, and verification ok=16/changed=0. Destruction succeeded and
+VM, disk and key cleanup was confirmed for both runs. The historical
+current-lane Rocky 9 KVM pass at `856d417` is retained without rerun because
+role implementation is unchanged. No other matrix entries or full suite were
+run. These results strengthen focused compatibility evidence, not broader
+lifecycle/platform coverage; the maturity score remains 52% for the reasons in
+[MATURITY.md](MATURITY.md).
 
 ## Preflight
 

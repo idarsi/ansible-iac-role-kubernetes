@@ -80,6 +80,18 @@
           kubernetes:
             applications: []
 
+- name: "Reject invalid Helm, worker reference and cleanup inputs"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: "Initialize legacy negative validation evidence and baseline"
+      ansible.builtin.set_fact:
+        legacy_validation_rejections: []
+        kubernetes_applications: []
+        kubernetes_worker_state: "absent"
+        kubernetes_control_plane_inventory_hostname: ""
+
     - name: "Record validation mutation marker before negative tests"
       ansible.builtin.stat:
         path: "/tmp/ansible-iac-role-kubernetes-validation-mutated"
@@ -100,6 +112,7 @@
             ansible_facts:
               distribution: "Rocky"
               distribution_major_version: "9"
+              architecture: "x86_64"
             iac_blueprint:
               kubernetes:
                 applications:
@@ -119,11 +132,18 @@
           ansible.builtin.assert:
             that:
               - invalid_helm_failure.failed | default(false)
+              - ansible_failed_task.name == "Validate Helm application fields"
+              - invalid_helm_failure.results | length == 1
               - invalid_helm_failure.results[0].failed | default(false)
               - >-
-                invalid_helm_failure.results[0].msg is search("Invalid Helm
+                invalid_helm_failure.results[0].msg == "Invalid Helm
                 application 'bad-chart': release_name, namespace, chart,
-                timeout, and chart_version must be valid.")
+                timeout, and chart_version must be valid."
+
+        - name: "Record expected Helm rejection and reset application facts"
+          ansible.builtin.set_fact:
+            legacy_validation_rejections: "{{ legacy_validation_rejections + ['helm-timeout'] }}"
+            kubernetes_applications: []
 
     - name: "Reject worker without a suitable control plane"
       block:
@@ -149,11 +169,18 @@
           ansible.builtin.assert:
             that:
               - invalid_worker_failure.failed | default(false)
+              - ansible_failed_task.name == "Validate Kubernetes worker control-plane reference"
               - >-
-                invalid_worker_failure.msg is search("A present
+                invalid_worker_failure.msg == "A present
                 worker requires kubernetes_control_plane_inventory_hostname to
                 name an inventory host configured with control_plane_state:
-                present.")
+                present."
+
+        - name: "Record expected worker rejection and reset reference facts"
+          ansible.builtin.set_fact:
+            legacy_validation_rejections: "{{ legacy_validation_rejections + ['worker-reference'] }}"
+            kubernetes_worker_state: "absent"
+            kubernetes_control_plane_inventory_hostname: ""
 
     - name: "Confirm invalid validation did not create a marker"
       ansible.builtin.stat:
@@ -187,4 +214,37 @@
           ansible.builtin.assert:
             that:
               - unsafe_cleanup_failure.failed | default(false)
-              - unsafe_cleanup_failure | to_json is search("Unsafe Kubernetes cleanup path")
+              - ansible_failed_task.name == "Validate user-overridable Kubernetes cleanup paths"
+              - unsafe_cleanup_failure.results | selectattr('failed', 'equalto', true) | list | length == 1
+              - >-
+                (unsafe_cleanup_failure.results | selectattr('failed', 'equalto', true) | first).msg ==
+                "Unsafe Kubernetes cleanup path '/'. Cleanup paths must be non-empty absolute role-owned files, or the marked
+                Helm cache directory; broad parent paths and '/' are rejected."
+
+        - name: "Record expected cleanup rejection"
+          ansible.builtin.set_fact:
+            legacy_validation_rejections: "{{ legacy_validation_rejections + ['cleanup-path'] }}"
+
+# Successful validation ends the host's play, even inside a block. This separate
+# play must check the evidence so unexpected acceptance cannot skip the verdict.
+- name: "Require all legacy negative validations to complete"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: "Assert exactly three expected legacy validation rejections"
+      ansible.builtin.assert:
+        that:
+          - legacy_validation_rejections | default([]) == ['helm-timeout', 'worker-reference', 'cleanup-path']
+          - legacy_validation_rejections | length == 3
+        fail_msg: "Expected all three Helm/reference/cleanup rejections; invalid input may have been accepted and ended the play."
+
+    - name: "Check validation marker after all negative cases"
+      ansible.builtin.stat:
+        path: "/tmp/ansible-iac-role-kubernetes-validation-mutated"
+      register: validation_marker_after
+
+    - name: "Assert validation marker remains absent"
+      ansible.builtin.assert:
+        that:
+          - not validation_marker_after.stat.exists
