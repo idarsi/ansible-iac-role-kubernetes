@@ -1,3 +1,15 @@
+> **Maturity State: Alpha**
+>
+> **RC Readiness: 52%**
+>
+> Assessed at `update/ansible-215-numeric-validation` (base `325fefc` plus
+> this working tree). Final validation passed Core 2.15.13, 2.20.8 and 2.21.3,
+> including 24 expected negative cases and four platform assertions. A focused
+> Rocky 9 containerd KVM retest passed convergence, idempotence and verification.
+> Other platforms and the full suite were not retested; historical Rocky 9/10
+> evidence is retained. See the
+> [criterion-level assessment](MATURITY.md) for evidence and remaining gaps.
+
 ANSIBLE-IAC-ROLE-KUBERNETES
 ===========================
 **COPYRIGHT** 2026 ^(ida|arsi)$ collective
@@ -5,16 +17,6 @@ ANSIBLE-IAC-ROLE-KUBERNETES
 **AUTHORS**
 - Arsi Atomi <arsi@atomi.sh>
 - Arsi Atomi <arsi.atomi@valtori.fi>
-
-> **Maturity State: Beta**<br>
-> **RC Readiness: 80%** (fresh assessment of HEAD `cfdd685` plus the current
-> working tree). Focused Rocky Linux 9 and Rocky Linux 10 containerd KVM runs
-> passed convergence, idempotence, and verification. RHEL 9 and 10 remain
-> configured but unverified pending subscription/repository automation. The
-> role's initial container-runtime,
-> control-plane, Flannel, worker-join, SELinux, and uninstall workflows are
-> implemented. Interfaces and supported Kubernetes combinations may
-> still evolve before a stable release.
 
 Overview
 ========
@@ -85,6 +87,16 @@ component and preserve the container runtime and Kubernetes packages. Use
 The public root `iac_blueprint.kubernetes` is required. Legacy top-level
 variables remain accepted as compatibility overrides when that root is also
 provided; new inventories should use the blueprint fields.
+
+`iac_blueprint.kubernetes.api_port` takes precedence over the legacy
+`kubernetes_control_plane_api_port` (default `6443`). Supply a YAML integer
+between `1` and `65535`, for example `api_port: 7443`, not `api_port: "7443"`.
+Strings, booleans, floats, nulls, lists, mappings, and out-of-range values are
+rejected before mutation. Validation checks the original YAML value rather
+than a templated scalar fact, which Ansible Core 2.15 can stringify. Port
+selection is used for the role's firewalld rules; it does not currently change
+the kubeadm API-server bind port.
+
 Applications can be declared under `iac_blueprint.kubernetes.applications`.
 The role accepts Kubernetes YAML manifests and Helm charts. Both are applied
 or removed on the control plane. Keep application definitions explicit, pin

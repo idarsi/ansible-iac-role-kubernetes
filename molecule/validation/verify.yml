@@ -1,19 +1,28 @@
 ---
+###############################################################################
+# verify.yml
+# @author Arsi Atomi
+###############################################################################
+
+- name: "Verify API port compatibility"
+  ansible.builtin.import_playbook: api_ports.yml
+
 - name: "Verify validation scenario"
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
     - name: "Load role defaults for Flannel SELinux target regression check"
+      # Defaults reference sibling variables by their original names. A namespace
+      # makes Ansible 2.15 eagerly template unrelated defaults without those names.
       ansible.builtin.include_vars:
         file: "../../defaults/main.yml"
-        name: kubernetes_role_defaults
 
     - name: "Assert EL 9 Flannel SELinux target"
       ansible.builtin.assert:
         that:
           - >-
-            kubernetes_role_defaults.kubernetes_selinux_file_contexts
+            kubernetes_selinux_file_contexts
             | selectattr('target', 'equalto', '/var/run/flannel(/.*)?')
             | list | length == 1
       vars:
@@ -25,7 +34,7 @@
       ansible.builtin.assert:
         that:
           - >-
-            kubernetes_role_defaults.kubernetes_selinux_file_contexts
+            kubernetes_selinux_file_contexts
             | selectattr('target', 'equalto', '/var/run/flannel(/.*)?')
             | list | length == 1
       vars:
@@ -37,7 +46,7 @@
       ansible.builtin.assert:
         that:
           - >-
-            kubernetes_role_defaults.kubernetes_selinux_file_contexts
+            kubernetes_selinux_file_contexts
             | selectattr('target', 'equalto', '/run/flannel(/.*)?')
             | list | length == 1
       vars:
@@ -49,7 +58,7 @@
       ansible.builtin.assert:
         that:
           - >-
-            kubernetes_role_defaults.kubernetes_selinux_file_contexts
+            kubernetes_selinux_file_contexts
             | selectattr('target', 'equalto', '/run/flannel(/.*)?')
             | list | length == 1
       vars:

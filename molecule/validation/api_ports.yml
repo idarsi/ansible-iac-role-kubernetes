@@ -1,0 +1,107 @@
+---
+###############################################################################
+# api_ports.yml
+# @author Arsi Atomi
+###############################################################################
+
+- name: "Accept custom blueprint API port with precedence over legacy override"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    state: "validate"
+    ansible_facts:
+      distribution: "Rocky"
+      distribution_major_version: "9"
+    kubernetes_control_plane_api_port: "ignored-invalid-legacy-value"
+    iac_blueprint:
+      kubernetes:
+        api_port: 7443
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Accept legacy API port override at lower boundary"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    state: "validate"
+    ansible_facts:
+      distribution: "Rocky"
+      distribution_major_version: "9"
+    kubernetes_control_plane_api_port: 1
+    iac_blueprint:
+      kubernetes: {}
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Accept blueprint API port at upper boundary"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    state: "validate"
+    ansible_facts:
+      distribution: "Rocky"
+      distribution_major_version: "9"
+    iac_blueprint:
+      kubernetes:
+        api_port: 65535
+  roles:
+    - role: ansible-iac-role-kubernetes
+
+- name: "Reject invalid API ports through the role entrypoint"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    state: "validate"
+    ansible_facts:
+      distribution: "Rocky"
+      distribution_major_version: "9"
+  tasks:
+    - name: "Initialize API port rejection evidence"
+      ansible.builtin.set_fact:
+        api_port_rejections: []
+        api_port_invalid_cases:
+          - { name: "quoted-integer", value: "6443" }
+          - { name: "text", value: "invalid" }
+          - { name: "boolean-true", value: true }
+          - { name: "boolean-false", value: false }
+          - { name: "float", value: 6443.5 }
+          - { name: "whole-float", value: 6443.0 }
+          - { name: "null", value: null }
+          - { name: "list", value: [6443] }
+          - { name: "mapping", value: { port: 6443 } }
+          - { name: "zero", value: 0 }
+          - { name: "negative", value: -1 }
+          - { name: "too-large", value: 65536 }
+
+    - name: "Exercise invalid blueprint API ports"
+      ansible.builtin.include_tasks: tasks/reject_api_port.yml
+      vars:
+        api_port_source: "blueprint"
+        kubernetes_control_plane_api_port: 6443
+      loop: "{{ api_port_invalid_cases | map(attribute='value') | list }}"
+      loop_control:
+        loop_var: api_port_invalid_value
+
+    - name: "Exercise invalid legacy API ports"
+      ansible.builtin.include_tasks: tasks/reject_api_port.yml
+      vars:
+        api_port_source: "legacy"
+      loop: "{{ api_port_invalid_cases | map(attribute='value') | list }}"
+      loop_control:
+        loop_var: kubernetes_control_plane_api_port
+
+# state=validate ends the host's play on success. A separate play ensures that
+# an unexpectedly accepted negative case cannot silently skip the final check.
+- name: "Require every invalid API port to have failed for the expected reason"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: "Assert complete API port rejection evidence"
+      ansible.builtin.assert:
+        that:
+          - api_port_rejections | length == 2 * (api_port_invalid_cases | length)

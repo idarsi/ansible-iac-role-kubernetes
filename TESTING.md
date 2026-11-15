@@ -28,8 +28,13 @@ for host setup and prerequisites.
 
 ## Scenario coverage
 
-- `validation`: valid blueprint validation without host mutation; invalid schema,
-  duplicate, and reference fixtures should be added as the scenario expands.
+- `validation`: default, custom, and legacy API ports, blueprint precedence,
+  inclusive port boundaries, and rejection of invalid types/ranges through the
+  role entrypoint. API-port negative tests assert the exact failure and use a
+  separate final play to detect unexpected acceptance despite `meta: end_host`.
+  Existing Helm/reference/cleanup negative tasks later in `verify.yml` remain
+  unreachable after its successful validation-only role invocation ends the
+  play; those older tests must not be counted as executed coverage.
 - `kvm-containerd`, `kvm-crio`: baseline runtime installation, bootstrap and
   idempotence.
 - `kvm-containerd-cluster`, `kvm-crio-cluster`: worker references, CNI and
@@ -76,6 +81,49 @@ not cover every scenario or constitute a full-suite run. RHEL runtime coverage
 remains unverified pending subscription/repository automation.
 
 ## Commands
+
+### Ansible compatibility evidence
+
+At base commit `325fefc`, the investigation reported syntax and lint passing
+on the shared `ansible-min` (Core 2.15.13/Python 3.9), `ansible-current`
+(Core 2.20.8), and `ansible-next` (Core 2.21.3) lanes. `molecule test -s validation`
+passed current/next but failed min: a filtered scalar `set_fact` expression
+converted the default integer port to a string before the numeric assertion.
+The focused fix retains the port in the blueprint mapping, validates the raw
+blueprint/legacy value, and avoids overwriting the legacy input with a scalar
+fact. Other normalized fields were inspected; no other numeric scalar
+normalization/type assertion pair was found.
+
+The tester subsequently confirmed API-port regressions passed all three lanes,
+including exactly 24 expected negative cases. Current/next completed validation
+(`ok=336`, no failures); min reached `ok=291`, `rescued=24`, then failed the
+Flannel verifier because its namespaced defaults mapping eagerly templated
+unrelated sibling references on Core 2.15. The verifier now loads defaults under
+their original names, resolving those references without duplicating defaults.
+All four platform assertions use the direct SELinux-context variable; no other
+namespaced defaults references were found in Molecule scenarios.
+After the verifier adjustment and stronger blueprint-negative isolation (a valid
+legacy fallback), the tester's final `molecule test -s validation` runs exited
+0 on Core 2.15.13, 2.20.8 and 2.21.3. All positive cases, exactly 24 expected
+negative cases with exact failure assertions, the completeness check and all
+four platform-specific SELinux assertions passed. These platform assertions
+validate defaults; they are not four-platform runtime verification.
+
+The final current-lane command
+`molecule test -s kvm-containerd --platform-name k8s-containerd-rocky9`
+also exited 0: convergence reported 27 changes, idempotence reported zero
+changes, and verification reported 16 successful tasks with zero failures.
+Destroy succeeded; the scenario's VM, disk and keys were absent afterward.
+Unrelated VMs and the preexisting `.ansible_async/` directory were unchanged.
+Other platforms, runtimes and the full suite were not rerun; prior Rocky 10
+results remain historical evidence, not results for this working tree.
+
+Run `molecule test -s validation` after activating each shared environment;
+do not install or change dependencies to match the CI pins. Local current and
+min intentionally differ from `requirements-ci.txt`, which pins the next lane.
+CI is not yet a three-lane compatibility matrix. Port tests validate inputs,
+not custom-port cluster connectivity; kubeadm bind-port configuration is
+outside this focused change. The tester owns Molecule and KVM execution.
 
 ## Preflight
 
