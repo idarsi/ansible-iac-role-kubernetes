@@ -73,6 +73,13 @@ the `default` scenario and fails because this role has no default scenario.
 Reset a named scenario explicitly, for example `molecule reset -s kvm-containerd`
 or `molecule reset -s kvm-crio`.
 
+The shared create and destroy playbooks are configured under
+`provisioner.playbooks` in each KVM scenario's `molecule.yml`, a configuration
+shape supported by both Molecule 6 and current Molecule. Run
+`molecule syntax -s <scenario>` in the selected shared environment to parse
+and validate a scenario without creating a VM. Molecule 6 does not provide a
+`molecule config` command.
+
 The verified evidence is focused Rocky Linux 9 and Rocky Linux 10
 `kvm-containerd` runs passing convergence, idempotence, and verification,
 including SELinux `/var/run/flannel` handling on Rocky Linux 9 (via semanage
