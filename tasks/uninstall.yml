@@ -316,9 +316,10 @@
 
 - name: "Applying restored sysctl configuration"
   ansible.builtin.command: sysctl --system
+  register: kubernetes_sysctl_restore
   changed_when: true
   when: >-
     kubernetes_removed_files.results
-    | selectattr('item', 'equalto', '/etc/sysctl.d/99-kubernetes.conf')
+    | selectattr('kubernetes_uninstall_path', 'equalto', '/etc/sysctl.d/99-kubernetes.conf')
     | selectattr('changed', 'equalto', true)
     | list | length > 0

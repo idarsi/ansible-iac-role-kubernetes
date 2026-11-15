@@ -1,5 +1,8 @@
 ---
-
+###############################################################################
+# converge.yml
+# @author Arsi Atomi
+###############################################################################
 - name: "Install Kubernetes before uninstall verification"
   hosts: all
   become: true
@@ -12,6 +15,14 @@
         cni_state: "present"
   roles:
     - role: ansible-iac-role-kubernetes
+  post_tasks:
+    - name: "Seeding unmanaged CNI file for uninstall preservation verification"
+      ansible.builtin.copy:
+        dest: "/etc/cni/net.d/99-unmanaged-preservation.fixture"
+        content: "Unmanaged CNI directory content must survive Kubernetes uninstall.\n"
+        owner: "root"
+        group: "root"
+        mode: "0600"
 
 - name: "Uninstall Kubernetes"
   hosts: all
@@ -23,3 +34,33 @@
       kubernetes: {}
   roles:
     - role: ansible-iac-role-kubernetes
+  post_tasks:
+    - name: "Checking existing sysctl configuration removal reloads sysctl"
+      ansible.builtin.assert:
+        that:
+          - >-
+            kubernetes_removed_files.results
+            | selectattr('kubernetes_uninstall_path', 'equalto', '/etc/sysctl.d/99-kubernetes.conf')
+            | selectattr('changed', 'equalto', true) | list | length == 1
+          - kubernetes_sysctl_restore is changed
+          - kubernetes_sysctl_restore.rc == 0
+
+- name: "Repeat Kubernetes uninstall without sysctl reload"
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    state: uninstall
+    iac_blueprint:
+      kubernetes: {}
+  roles:
+    - role: ansible-iac-role-kubernetes
+  post_tasks:
+    - name: "Checking repeated absence does not reload sysctl"
+      ansible.builtin.assert:
+        that:
+          - >-
+            kubernetes_removed_files.results
+            | selectattr('kubernetes_uninstall_path', 'equalto', '/etc/sysctl.d/99-kubernetes.conf')
+            | selectattr('changed', 'equalto', true) | list | length == 0
+          - kubernetes_sysctl_restore is skipped

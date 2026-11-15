@@ -2,14 +2,16 @@
 >
 > **RC Readiness: 52%**
 >
-> Evidence update at `update/consolidated-local-kubernetes` (base `0829cb9`
-> plus working-tree test repairs): three-lane validation passed all 27 exact
-> negatives, both completion checks and four platform-default assertions.
-> Min/next Rocky 9 containerd KVM passed convergence, zero-change idempotence,
-> verification and cleanup. The historical current-lane Rocky 9 KVM pass at
-> `856d417` is retained without rerun; role code is unchanged. Readiness remains
-> 52% because broader schema, lifecycle and platform evidence is incomplete.
-> Wider platform/full-suite gaps remain. See the
+> Evidence update at `update/consolidated-local-kubernetes` (`8919b8c` plus
+> scoped working-tree repairs): all nine targeted Rocky 9 KVM combinations
+> passed across min/current/next: application, uninstall and CRI-O component
+> absence. Uninstall checks all 16 managed paths, preserves unmanaged CNI
+> content, and reloads sysctl only on the first removal. Application repeat
+> assertions passed; this is not a standalone zero-change Molecule idempotence
+> result. Earlier three-lane validation and focused baseline evidence are
+> retained. Readiness remains 52% because broader schema, lifecycle and platform
+> evidence is incomplete. RHEL remains blocked and unverified; this was not a
+> full-suite run. See the
 > [criterion-level assessment](MATURITY.md) for evidence and remaining gaps.
 
 ANSIBLE-IAC-ROLE-KUBERNETES
@@ -50,6 +52,13 @@ idempotence, and verification). RHEL 9 and 10 are configured as possible test
 platforms, not verified or working: testing requires subscription-backed media
 and guest repository automation that is not currently available. The unfiltered KVM scenario includes
 RHEL and can fail without those prerequisites.
+
+RHEL guests require authorized access to matching Red Hat BaseOS and AppStream
+content, including `container-selinux`. Repository IDs vary with Satellite,
+RHUI and EUS; registration and repository provisioning belong to the environment
+owner, not this role or the shared KVM launcher. RHEL testing remains blocked
+until that access is supplied; the exact guest repository failure is unverified.
+Do not substitute another distribution's packages or weaken SELinux to bypass it.
 
 Supported container runtimes:
 
@@ -318,6 +327,14 @@ runtime, role-managed repositories and configuration, restore swap settings,
 remove the control-plane and worker configuration, and clean role-managed
 firewalld and SELinux entries. Use them only when the host should be removed
 from the Kubernetes deployment.
+
+Removal runs `kubeadm reset` when node state exists, then removes the selected
+managed files, not the entire `/etc/kubernetes`, `/var/lib/kubelet`, or
+`/etc/cni/net.d` parent trees. Those directories may remain. In particular,
+unrelated CNI configuration is preserved rather than recursively deleting the
+shared CNI directory. This is not a guarantee that arbitrary files inside
+kubeadm-managed trees survive `kubeadm reset`; back up required node data before
+removal.
 
 The etcd data directory is removed during `absent`/`uninstall` only when its
 root-owned external marker (`kubernetes_etcd_ownership_marker`, default

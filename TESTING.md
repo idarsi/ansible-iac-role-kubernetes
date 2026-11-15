@@ -22,12 +22,24 @@ for host setup and prerequisites.
 | Platform/image | Ansible or application versions | Molecule scenarios | Main coverage |
 |---|---|---|---|
 | Rocky Linux 9 / KVM | Kubernetes v1.34; shared Core 2.15.13 / 2.20.8 / 2.21.3 | `validation`; `kvm-containerd` | Three-lane validation passed; min/next KVM passed at `0829cb9` plus test repairs, historical current KVM pass retained at `856d417` |
+| Rocky Linux 9 / KVM | Kubernetes v1.34; Core 2.15.13 / 2.20.8 / 2.21.3 | `kvm-containerd-application`; `kvm-containerd-uninstall`; `kvm-crio-component-absent` | All nine targeted combinations passed at `8919b8c` plus scoped repairs; details below |
 | Rocky Linux 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Focused containerd KVM run passed convergence, idempotence, and verification |
 | RHEL 9 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; unverified pending subscription-backed media and guest repository automation |
 | RHEL 10 / KVM | Kubernetes v1.34 | `kvm-containerd` | Configured only; unverified pending subscription-backed media and guest repository automation |
 
 ## Scenario coverage
 
+- Scoped follow-up repairs (nine targeted combinations passed): Helm ensures `tar` and
+  `gzip` before extracting the checksum-pinned archive.
+  `kvm-crio-component-absent` asserts the exact intended installation blueprint
+  and a single HTTPS GPG-key URL before invoking the role.
+  `kvm-containerd-uninstall` asserts that removing the existing sysctl file
+  reloads sysctl successfully, then repeats uninstall and requires the reload
+  to be skipped. The repaired uninstall verifier checks each managed file and
+  marked etcd path individually, reports allowed parent remnants, and verifies
+  an unmanaged CNI sentinel survives both removal passes. The earlier aggregate
+  parent-directory absence verifier failed; that failure is superseded by the
+  successful focused retest below, not by recursive deletion of shared trees.
 - `validation`: default, custom, and legacy API ports, blueprint precedence,
   inclusive port boundaries, and rejection of invalid types/ranges through the
   role entrypoint. API-port negative tests assert the exact failure and use a
@@ -48,10 +60,12 @@ for host setup and prerequisites.
 - `kvm-containerd-uninstall`: destructive cleanup in a disposable VM.
 - `kvm-containerd-component-absent`, `kvm-crio-component-absent`: component
   absence states.
-- `kvm-containerd-application`: manifest and Helm lifecycle and idempotence.
+- `kvm-containerd-application`: manifest and Helm lifecycle with repeat-converge
+  assertions, not a standalone zero-change Molecule idempotence action.
 - `kvm-containerd-uninstall`: verifies role-owned etcd cleanup and removal of
-  the external ownership marker while preserving unmarked data and
-  ownership-safe SELinux cleanup on disposable hosts.
+  the external ownership marker, unmanaged CNI preservation, sysctl reload
+  behavior and SELinux marker removal on disposable hosts. This does not prove
+  comprehensive unmarked-etcd or stale-SELinux-rule preservation behavior.
 
 Only validation runs on ordinary pull requests. The practical Rocky `kvm-containerd`
 baseline is configured for the scheduled or manually dispatched CI workflow on
@@ -86,7 +100,7 @@ shape supported by both Molecule 6 and current Molecule. Run
 and validate a scenario without creating a VM. Molecule 6 does not provide a
 `molecule config` command.
 
-The verified evidence is focused Rocky Linux 9 and Rocky Linux 10
+The earlier verified baseline evidence is focused Rocky Linux 9 and Rocky Linux 10
 `kvm-containerd` runs passing convergence, idempotence, and verification,
 including SELinux `/var/run/flannel` handling on Rocky Linux 9 (via semanage
 equivalency) and `/run/flannel` handling on Rocky Linux 10. This evidence does
@@ -94,6 +108,62 @@ not cover every scenario or constitute a full-suite run. RHEL runtime coverage
 remains unverified pending subscription/repository automation.
 
 ## Commands
+
+### Final nine-combination focused runtime evidence
+
+At `8919b8c` plus scoped working-tree repairs, the tester confirmed all three
+commands below passed in each shared lane:
+
+```bash
+molecule test -s kvm-containerd-application
+molecule test -s kvm-containerd-uninstall
+molecule test -s kvm-crio-component-absent
+```
+
+| Lane | Ansible Core | Molecule | Result |
+|---|---|---|---|
+| `ansible-min` | 2.15.13 | 6 | All three passed |
+| `ansible-current` | 2.20.8 | 26.8 | All three passed |
+| `ansible-next` | 2.21.3 | 26.8 | All three passed |
+
+The earlier min application pass was retained because its code and fixtures
+were unchanged; eight follow-up runs completed the matrix. Each command exited
+0 with no failed or unreachable hosts. Scenario-owned VMs, disks and keys were
+absent after successful teardown; unrelated resources were untouched.
+
+| Scenario | Converge recap | Verify recap | Observable evidence |
+|---|---|---|---|
+| Application | ok=270, changed=44 | ok=5, changed=0 | Manifest/Helm lifecycle and repeat-converge assertions passed |
+| Uninstall | ok=154, changed=44 | ok=10, changed=0 | All 16 managed paths absent; unmanaged CNI content preserved across two uninstalls; initial sysctl reload and repeated skip passed |
+| CRI-O component absence | control plane ok=198, changed=35; worker ok=115, changed=22 | Each host ok=3, changed=0 | Repaired fixture and component absence checks passed |
+
+The application run did **not** execute a standalone Molecule zero-change
+idempotence action; its repeat assertions are narrower evidence. These nine
+combinations are three scenarios across three lanes, not nine different
+scenarios or a full-suite run. RHEL remains blocked and unverified, with no
+retries in this retest; authorized matching guest repositories are still an
+external prerequisite. Readiness remains 52%/Alpha for the criterion-specific
+reasons in [MATURITY.md](MATURITY.md).
+
+### Scoped Helm, uninstall and CRI-O fixture static checks
+
+At `8919b8c` plus these scoped working-tree repairs, the following commands
+passed in each existing shared `ansible-min`, `ansible-current` and
+`ansible-next` environment (Core 2.15.13, 2.20.8 and 2.21.3):
+
+```bash
+export ANSIBLE_ROLES_PATH="$(dirname "$PWD")"
+ansible-playbook --syntax-check -i 'localhost,' molecule/kvm-crio-component-absent/converge.yml
+ansible-playbook --syntax-check -i 'localhost,' molecule/kvm-containerd-uninstall/converge.yml
+ansible-lint --offline --profile production tasks/helm.yml tasks/uninstall.yml molecule/kvm-crio-component-absent/converge.yml molecule/kvm-containerd-uninstall/converge.yml
+git diff --check
+```
+
+Each lint run processed 21 files with zero failures/warnings. Syntax checks
+only warned that the localhost inventory did not contain the CRI-O scenario's
+hosts. No runtime tests were performed during these static checks, and no
+dependency/environment changes were made. Subsequent tester runtime results
+are recorded above.
 
 ### Ansible compatibility evidence
 
@@ -156,9 +226,10 @@ Serialized `ansible-min` and `ansible-next` runs of
 exited 0. Each reported convergence ok=71/changed=27, idempotence
 ok=61/changed=0, and verification ok=16/changed=0. Destruction succeeded and
 VM, disk and key cleanup was confirmed for both runs. The historical
-current-lane Rocky 9 KVM pass at `856d417` is retained without rerun because
-role implementation is unchanged. No other matrix entries or full suite were
-run. These results strengthen focused compatibility evidence, not broader
+current-lane Rocky 9 KVM pass at `856d417` was retained without rerun because
+role implementation was unchanged at that assessment. No other matrix entries
+or full suite were run in that earlier retest. These results strengthen focused
+compatibility evidence, not broader
 lifecycle/platform coverage; the maturity score remains 52% for the reasons in
 [MATURITY.md](MATURITY.md).
 
@@ -188,6 +259,14 @@ test -n "${IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10:-}" || { echo "Set IDARSI_TEST
 Use `default` for the network check because the shared KVM playbooks create
 guests on libvirt's default network. RHEL scenarios additionally need the
 RHEL-specific media and guest repository access described above.
+
+The environment owner must provide authorized matching Red Hat BaseOS and
+AppStream content, including `container-selinux`, before RHEL runs. Repository
+IDs can differ under Satellite, RHUI or EUS; no fixed IDs are enforced here.
+The role and shared KVM launcher do not register guests or provision those
+repositories. RHEL tests remain blocked pending this access; the exact guest
+failure has not been diagnosed. Do not substitute foreign packages or disable
+SELinux. The tester owns RHEL diagnostics and subsequent runtime verification.
 
 ```bash
 source /path/to/idarsi-ansible-test-environments/.venv/ansible-current/bin/activate
