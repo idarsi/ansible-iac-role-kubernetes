@@ -1,4 +1,8 @@
 ---
+###############################################################################
+# validate_inventory.yml
+# @author Arsi Atomi
+###############################################################################
 - name: "Validate Kubernetes blueprint root"
   ansible.builtin.assert:
     that:
@@ -6,6 +10,15 @@
       - iac_blueprint.kubernetes is defined
       - iac_blueprint.kubernetes is mapping
     fail_msg: "iac_blueprint.kubernetes must be a mapping; no host changes were made."
+
+# Validate the original YAML value: scalar set_fact templates stringify integers
+# on Ansible 2.15 with non-native Jinja. Do not coerce strings, booleans or floats.
+- name: "Validate Kubernetes API port"
+  ansible.builtin.assert:
+    that:
+      - (iac_blueprint.kubernetes.api_port | default(kubernetes_control_plane_api_port)) is integer
+      - (iac_blueprint.kubernetes.api_port | default(kubernetes_control_plane_api_port)) in range(1, 65536)
+    fail_msg: "Kubernetes api_port (or kubernetes_control_plane_api_port) must be a YAML integer between 1 and 65535."
 
 - name: "Validate Kubernetes scalar blueprint fields"
   ansible.builtin.assert:
@@ -17,7 +30,6 @@
       - kubernetes_cni in ["flannel"]
       - kubernetes_cni_state in ["present", "absent"]
       - kubernetes_applications is sequence and kubernetes_applications is not string
-      - kubernetes_control_plane_api_port is number and kubernetes_control_plane_api_port | int in range(1, 65536)
       - kubernetes_etcd_ownership_marker is string
       - kubernetes_etcd_ownership_marker is match("^/var/lib/[^/]+$")
       - kubernetes_etcd_ownership_marker != "/var/lib/etcd"

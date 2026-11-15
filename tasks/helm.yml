@@ -1,4 +1,8 @@
 ---
+###############################################################################
+# helm.yml
+# @author Arsi Atomi
+###############################################################################
 - name: "Selecting Helm binary architecture"
   ansible.builtin.set_fact:
     kubernetes_helm_architecture: >-
@@ -25,6 +29,13 @@
     fail_msg: >-
       Helm installation requires an HTTPS source and a pinned SHA256 checksum
       for architecture {{ kubernetes_helm_architecture }}.
+
+- name: "Installing Helm archive extraction dependencies"
+  ansible.builtin.package:
+    name:
+      - tar
+      - gzip
+    state: present
 
 - name: "Checking Helm download directory before creation"
   ansible.builtin.stat:

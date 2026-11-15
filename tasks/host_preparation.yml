@@ -1,4 +1,8 @@
 ---
+###############################################################################
+# host_preparation.yml
+# @author Arsi Atomi
+###############################################################################
 
 - name: "Disabling active swap"
   ansible.builtin.command: swapoff --all
@@ -53,7 +57,7 @@
 - name: "Checking Kubernetes API traffic in firewalld"
   ansible.builtin.command:
     cmd: >-
-      firewall-cmd --permanent --query-port={{ kubernetes_control_plane_api_port }}/tcp
+      firewall-cmd --permanent --query-port={{ kubernetes_blueprint.api_port | default(kubernetes_control_plane_api_port) }}/tcp
   register: kubernetes_firewalld_api_port_check
   changed_when: false
   failed_when: kubernetes_firewalld_api_port_check.rc not in [0, 1]
@@ -67,7 +71,7 @@
   ansible.builtin.command:
     cmd: >-
       firewall-cmd --permanent
-      --add-port={{ kubernetes_control_plane_api_port }}/tcp
+      --add-port={{ kubernetes_blueprint.api_port | default(kubernetes_control_plane_api_port) }}/tcp
   register: kubernetes_firewalld_api_port
   changed_when: true
   notify: "Reload firewalld for Kubernetes"

@@ -1,4 +1,8 @@
 ---
+###############################################################################
+# main.yml
+# @author Arsi Atomi
+###############################################################################
 
 - name: "Checking if operating system is supported"
   ansible.builtin.assert:
@@ -33,7 +37,6 @@
     kubernetes_worker_state: "{{ iac_blueprint.kubernetes.worker_state | default(kubernetes_worker_state) }}"
     kubernetes_cni: "{{ iac_blueprint.kubernetes.cni | default(kubernetes_cni) }}"
     kubernetes_cni_state: "{{ iac_blueprint.kubernetes.cni_state | default(kubernetes_cni_state) }}"
-    kubernetes_control_plane_api_port: "{{ iac_blueprint.kubernetes.api_port | default(kubernetes_control_plane_api_port) }}"
     kubernetes_control_plane_inventory_hostname: >-
        {{ iac_blueprint.kubernetes.control_plane_inventory_hostname
           | default(kubernetes_control_plane_inventory_hostname) }}

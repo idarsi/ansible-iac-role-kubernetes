@@ -1,0 +1,27 @@
+---
+###############################################################################
+# reject_api_port.yml
+# @author Arsi Atomi
+###############################################################################
+
+- name: "Reject invalid API port without host mutation"
+  block:
+    - name: "Validate invalid API port"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-kubernetes
+      vars:
+        iac_blueprint: >-
+          {{ {'kubernetes': {'api_port': api_port_invalid_value}}
+             if api_port_source == 'blueprint' else {'kubernetes': {}} }}
+  rescue:
+    - name: "Assert exact API port validation failure"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_task.name == "Validate Kubernetes API port"
+          - >-
+            ansible_failed_result.msg ==
+            'Kubernetes api_port (or kubernetes_control_plane_api_port) must be a YAML integer between 1 and 65535.'
+
+    - name: "Record expected API port rejection"
+      ansible.builtin.set_fact:
+        api_port_rejections: "{{ api_port_rejections + [api_port_source] }}"

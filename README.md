@@ -1,3 +1,19 @@
+> **Maturity State: Alpha**
+>
+> **RC Readiness: 52%**
+>
+> Evidence update at `update/consolidated-local-kubernetes` (`8919b8c` plus
+> scoped working-tree repairs): all nine targeted Rocky 9 KVM combinations
+> passed across min/current/next: application, uninstall and CRI-O component
+> absence. Uninstall checks all 16 managed paths, preserves unmanaged CNI
+> content, and reloads sysctl only on the first removal. Application repeat
+> assertions passed; this is not a standalone zero-change Molecule idempotence
+> result. Earlier three-lane validation and focused baseline evidence are
+> retained. Readiness remains 52% because broader schema, lifecycle and platform
+> evidence is incomplete. RHEL remains blocked and unverified; this was not a
+> full-suite run. See the
+> [criterion-level assessment](MATURITY.md) for evidence and remaining gaps.
+
 ANSIBLE-IAC-ROLE-KUBERNETES
 ===========================
 **COPYRIGHT** 2026 ^(ida|arsi)$ collective
@@ -5,16 +21,6 @@ ANSIBLE-IAC-ROLE-KUBERNETES
 **AUTHORS**
 - Arsi Atomi <arsi@atomi.sh>
 - Arsi Atomi <arsi.atomi@valtori.fi>
-
-> **Maturity State: Beta**<br>
-> **RC Readiness: 80%** (fresh assessment of HEAD `cfdd685` plus the current
-> working tree). Focused Rocky Linux 9 and Rocky Linux 10 containerd KVM runs
-> passed convergence, idempotence, and verification. RHEL 9 and 10 remain
-> configured but unverified pending subscription/repository automation. The
-> role's initial container-runtime,
-> control-plane, Flannel, worker-join, SELinux, and uninstall workflows are
-> implemented. Interfaces and supported Kubernetes combinations may
-> still evolve before a stable release.
 
 Overview
 ========
@@ -46,6 +52,13 @@ idempotence, and verification). RHEL 9 and 10 are configured as possible test
 platforms, not verified or working: testing requires subscription-backed media
 and guest repository automation that is not currently available. The unfiltered KVM scenario includes
 RHEL and can fail without those prerequisites.
+
+RHEL guests require authorized access to matching Red Hat BaseOS and AppStream
+content, including `container-selinux`. Repository IDs vary with Satellite,
+RHUI and EUS; registration and repository provisioning belong to the environment
+owner, not this role or the shared KVM launcher. RHEL testing remains blocked
+until that access is supplied; the exact guest repository failure is unverified.
+Do not substitute another distribution's packages or weaken SELinux to bypass it.
 
 Supported container runtimes:
 
@@ -85,6 +98,16 @@ component and preserve the container runtime and Kubernetes packages. Use
 The public root `iac_blueprint.kubernetes` is required. Legacy top-level
 variables remain accepted as compatibility overrides when that root is also
 provided; new inventories should use the blueprint fields.
+
+`iac_blueprint.kubernetes.api_port` takes precedence over the legacy
+`kubernetes_control_plane_api_port` (default `6443`). Supply a YAML integer
+between `1` and `65535`, for example `api_port: 7443`, not `api_port: "7443"`.
+Strings, booleans, floats, nulls, lists, mappings, and out-of-range values are
+rejected before mutation. Validation checks the original YAML value rather
+than a templated scalar fact, which Ansible Core 2.15 can stringify. Port
+selection is used for the role's firewalld rules; it does not currently change
+the kubeadm API-server bind port.
+
 Applications can be declared under `iac_blueprint.kubernetes.applications`.
 The role accepts Kubernetes YAML manifests and Helm charts. Both are applied
 or removed on the control plane. Keep application definitions explicit, pin
@@ -304,6 +327,14 @@ runtime, role-managed repositories and configuration, restore swap settings,
 remove the control-plane and worker configuration, and clean role-managed
 firewalld and SELinux entries. Use them only when the host should be removed
 from the Kubernetes deployment.
+
+Removal runs `kubeadm reset` when node state exists, then removes the selected
+managed files, not the entire `/etc/kubernetes`, `/var/lib/kubelet`, or
+`/etc/cni/net.d` parent trees. Those directories may remain. In particular,
+unrelated CNI configuration is preserved rather than recursively deleting the
+shared CNI directory. This is not a guarantee that arbitrary files inside
+kubeadm-managed trees survive `kubeadm reset`; back up required node data before
+removal.
 
 The etcd data directory is removed during `absent`/`uninstall` only when its
 root-owned external marker (`kubernetes_etcd_ownership_marker`, default
